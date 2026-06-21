@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  backend:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+    command: sh -c "npm install && npm run dev"

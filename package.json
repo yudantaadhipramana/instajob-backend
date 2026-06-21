@@ -1,0 +1,36 @@
+{
+  "name": "instajob-backend",
+  "version": "1.0.0",
+  "description": "InstaJob Backend API",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/env": "^7.0.0",
+    "@fastify/jwt": "^10.1.0",
+    "@prisma/client": "^6.19.3",
+    "bcrypt": "^6.0.0",
+    "bullmq": "^5.78.1",
+    "fastify": "^5.8.5",
+    "google-auth-library": "^10.7.0",
+    "ioredis": "^5.11.1",
+    "prisma": "^6.19.3",
+    "telegraf": "^4.16.3",
+    "uuid": "^14.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/node": "^26.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/uuid": "^10.0.0",
+    "pg": "^8.22.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,30 @@
+
+> instajob-backend@1.0.0 dev
+> tsx watch src/index.ts
+
+{"level":30,"time":1781883326486,"pid":15460,"hostname":"JINN","msg":"Server listening at http://127.0.0.1:3001"}
+Server listening on port 3001
+{"level":30,"time":1781883326488,"pid":15460,"hostname":"JINN","msg":"Server listening at http://169.254.83.107:3001"}
+{"level":30,"time":1781883326488,"pid":15460,"hostname":"JINN","msg":"Server listening at http://192.168.1.7:3001"}
+{"level":30,"time":1781883326488,"pid":15460,"hostname":"JINN","msg":"Server listening at http://172.27.48.1:3001"}
+{"level":30,"time":1781883360840,"pid":15460,"hostname":"JINN","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":51223},"msg":"incoming request"}
+{"level":30,"time":1781883360848,"pid":15460,"hostname":"JINN","reqId":"req-1","res":{"statusCode":200},"responseTime":7.900600016117096,"msg":"request completed"}
+{"level":30,"time":1781883371941,"pid":15460,"hostname":"JINN","reqId":"req-2","req":{"method":"OPTIONS","url":"/api/auth/google","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":50285},"msg":"incoming request"}
+{"level":30,"time":1781883371942,"pid":15460,"hostname":"JINN","reqId":"req-2","res":{"statusCode":204},"responseTime":1.3224999904632568,"msg":"request completed"}
+{"level":30,"time":1781883610547,"pid":15460,"hostname":"JINN","reqId":"req-3","req":{"method":"GET","url":"/api/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":59833},"msg":"incoming request"}
+{"level":30,"time":1781883610548,"pid":15460,"hostname":"JINN","reqId":"req-3","msg":"Route GET:/api/health not found"}
+{"level":30,"time":1781883610549,"pid":15460,"hostname":"JINN","reqId":"req-3","res":{"statusCode":404},"responseTime":1.1279000043869019,"msg":"request completed"}
+{"level":30,"time":1781883619674,"pid":15460,"hostname":"JINN","reqId":"req-4","req":{"method":"POST","url":"/api/auth/google","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":52429},"msg":"incoming request"}
+Google auth error: {
+  message: 'Wrong number of segments in token: test',
+  code: undefined,
+  type: 'Error'
+}
+{"level":30,"time":1781883619956,"pid":15460,"hostname":"JINN","reqId":"req-4","res":{"statusCode":401},"responseTime":281.4515999853611,"msg":"request completed"}
+{"level":30,"time":1781883650481,"pid":15460,"hostname":"JINN","reqId":"req-5","req":{"method":"POST","url":"/api/auth/google","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":64239},"msg":"incoming request"}
+Google auth error: {
+  message: 'Wrong number of segments in token: test',
+  code: undefined,
+  type: 'Error'
+}
+{"level":30,"time":1781883650484,"pid":15460,"hostname":"JINN","reqId":"req-5","res":{"statusCode":401},"responseTime":2.3276000022888184,"msg":"request completed"}

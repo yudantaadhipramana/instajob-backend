@@ -1,0 +1,5 @@
+
+> instajob-backend@1.0.0 dev
+> tsx watch src/index.ts
+
+{"level":50,"time":1781883270069,"pid":16748,"hostname":"JINN","err":{"type":"Error","message":"listen EADDRINUSE: address already in use 0.0.0.0:3001","stack":"Error: listen EADDRINUSE: address already in use 0.0.0.0:3001\n    at Server.setupListenHandle [as _listen2] (node:net:2008:16)\n    at listenInCluster (node:net:2065:12)\n    at node:net:2274:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)","code":"EADDRINUSE","errno":-4091,"syscall":"listen","address":"0.0.0.0","port":3001},"msg":"listen EADDRINUSE: address already in use 0.0.0.0:3001"}
