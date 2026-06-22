@@ -70,14 +70,13 @@ export async function createUser(data: {
   password: string;
 }): Promise<UserRow> {
   const crypto = require('crypto');
-  const id = crypto.randomUUID();
   const referralCode = crypto.randomUUID().substring(0, 8);
   
   const result = await pool.query(
-    `INSERT INTO "User" (id, email, "fullName", "passwordHash", "referralCode", "emailVerified", "subscriptionType")
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO "User" (email, "fullName", "passwordHash", "referralCode", "emailVerified", "subscriptionType")
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [id, data.email, data.fullName, data.password, referralCode, false, 'free']
+    [data.email, data.fullName, data.password, referralCode, false, 'free']
   );
   
   return result.rows[0];
