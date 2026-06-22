@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:***@127.0.0.1:5432/instajob_db';
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: DATABASE_URL,
 });
 
