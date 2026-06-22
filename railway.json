@@ -1,0 +1,10 @@
+{
+  "name": "instajob-backend",
+  "runtime": "nodejs",
+  "startCommand": "npm start",
+  "buildCommand": "npm install && npm run build",
+  "environmentVariables": {
+    "NODE_ENV": "production",
+    "PORT": "3001"
+  }
+}
