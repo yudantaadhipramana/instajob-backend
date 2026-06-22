@@ -169,7 +169,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
         }
 
         // Verify password
-        const passwordMatch = await bcrypt.compare(password, user.passwordHash || user.password || '');
+        const passwordMatch = await bcrypt.compare(password, (user as any).passwordHash || (user as any).password || '');
         if (!passwordMatch) {
           return reply.code(401).send({ message: 'Invalid email or password' });
         }
