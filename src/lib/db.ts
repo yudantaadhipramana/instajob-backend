@@ -73,7 +73,7 @@ export async function createUser(data: {
   const referralCode = crypto.randomUUID().substring(0, 8);
   
   const result = await pool.query(
-    `INSERT INTO "User" (email, "fullName", "passwordHash", "referralCode", "emailVerified", "subscriptionType")
+    `INSERT INTO "User" (email, "fullName", "password", "referralCode", "emailVerified", "subscriptionType")
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [data.email, data.fullName, data.password, referralCode, false, 'free']
