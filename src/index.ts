@@ -1,4 +1,4 @@
-import 'dotenv/config';
+// dotenv/config removed - Railway provides DATABASE_URL via environment variables
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
