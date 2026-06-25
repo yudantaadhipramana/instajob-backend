@@ -1,0 +1,212 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id               String  @id @default(uuid())
+  email            String  @unique
+  passwordHash     String
+  fullName         String?
+  subscriptionType String  @default("free")
+  referralCode     String  @unique
+
+  // Performance indexes
+  @@index([subscriptionType])
+  @@index([createdAt])
+
+  // Telegram Integration
+  telegramChatId   String? @unique
+  isTelegramLinked Boolean @default(false)
+
+  // Referral System
+  referredById     String?
+  referredBy       User?    @relation("ReferralRelation", fields: [referredById], references: [id])
+  referrals        User[]   @relation("ReferralRelation")
+  points           Int      @default(0)
+
+  // Gamification
+  level            Int      @default(1)
+  xp               Int      @default(0)
+  currentStreak    Int      @default(0)
+  longestStreak    Int      @default(0)
+  lastActiveDate   DateTime?
+
+  // Relations
+  profile        UserProfile?
+  applications   Application[]
+  notifications  Notification[]
+  subscription   Subscription?
+  autoApplyQueue AutoApplyQueue[]
+  applyQuota     ApplyQuota?
+  achievements   Achievement[]
+  matchScores    JobMatchScore[]
+  bookmarks      JobBookmark[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserProfile {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  bio        String?  @db.Text
+  skills     String[]
+  experience String?  @db.Text
+  education  String?  @db.Text
+  location   String?
+  resumeUrl  String?
+  jobPreferences String?  @db.Text // JSON string for preferences
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  title       String
+  description String    @db.Text
+  company     String
+  companyName String?
+  location    String
+  salaryMin   Int?
+  salaryMax   Int?
+  remote      Boolean   @default(false)
+  postedAt    DateTime  @default(now())
+  postedDate  DateTime  @default(now())
+  expiresAt   DateTime?
+  industry    String?
+  requiredSkills String[]
+
+  applications   Application[]
+  autoApplyQueue AutoApplyQueue[]
+  matchScores    JobMatchScore[]
+  bookmarks      JobBookmark[]
+
+  // Performance indexes
+  @@index([company])
+  @@index([location])
+  @@index([remote])
+  @@index([postedAt])
+  @@index([industry])
+}
+
+model Application {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id])
+  status    String   @default("pending") // pending, reviewed, interviewed, offered, rejected
+  appliedAt DateTime @default(now())
+  notes     String?  @db.Text
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+  @@index([status])
+  @@index([appliedAt])
+}
+
+model Subscription {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  plan      String    @default("free") // free, pro, enterprise
+  expiresAt DateTime?
+  features  String[] // array of feature flags
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  title          String
+  message        String
+  isRead         Boolean  @default(false)
+  type           String
+  sentToTelegram Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model AutoApplyQueue {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId        String
+  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  status       String    @default("pending") // pending, sent, failed, completed
+  emailContent String?   @db.Text
+  errorMessage String?   @db.Text
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, jobId])
+  @@index([status])
+  @@index([userId])
+}
+
+model ApplyQuota {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appliedToday Int      @default(0)
+  lastResetAt  DateTime @default(now())
+  totalApplied Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+
+model JobMatchScore {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId  String
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  score  Int
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+}
+
+model JobBookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  bookmarkedAt DateTime @default(now())
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+}
+
+model Achievement {
+
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  icon        String   // emoji or icon name
+  type        String   // badge, milestone, streak
+  earnedAt    DateTime @default(now())
+
+  @@unique([userId, title])
+  @@index([userId])
+}
