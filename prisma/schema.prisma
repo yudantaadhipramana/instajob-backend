@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -55,19 +55,19 @@ model UserProfile {
   id         String   @id @default(uuid())
   userId     String   @unique
   user       User     @relation(fields: [userId], references: [id])
-  bio        String?  @db.Text
-  skills     String[]
-  experience String?  @db.Text
-  education  String?  @db.Text
+  bio        String?
+  skills     String?  // JSON array stored as string
+  experience String?
+  education  String?
   location   String?
   resumeUrl  String?
-  jobPreferences String?  @db.Text // JSON string for preferences
+  jobPreferences String?  // JSON string for preferences
 }
 
 model Job {
   id          String    @id @default(uuid())
   title       String
-  description String    @db.Text
+  description String
   company     String
   companyName String?
   location    String
@@ -78,7 +78,7 @@ model Job {
   postedDate  DateTime  @default(now())
   expiresAt   DateTime?
   industry    String?
-  requiredSkills String[]
+  requiredSkills String?  // JSON array stored as string
 
   applications   Application[]
   autoApplyQueue AutoApplyQueue[]
@@ -101,7 +101,7 @@ model Application {
   job       Job      @relation(fields: [jobId], references: [id])
   status    String   @default("pending") // pending, reviewed, interviewed, offered, rejected
   appliedAt DateTime @default(now())
-  notes     String?  @db.Text
+  notes     String?
 
   @@unique([userId, jobId])
   @@index([userId])
@@ -116,7 +116,7 @@ model Subscription {
   user      User      @relation(fields: [userId], references: [id])
   plan      String    @default("free") // free, pro, enterprise
   expiresAt DateTime?
-  features  String[] // array of feature flags
+  features  String?  // JSON array stored as string
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -144,8 +144,8 @@ model AutoApplyQueue {
   jobId        String
   job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
   status       String    @default("pending") // pending, sent, failed, completed
-  emailContent String?   @db.Text
-  errorMessage String?   @db.Text
+  emailContent String?
+  errorMessage String?
   sentAt       DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

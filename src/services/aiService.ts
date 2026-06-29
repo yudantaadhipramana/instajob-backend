@@ -25,9 +25,10 @@ export const calculateMatchScore = async (userId: string, jobId: string): Promis
 
     const prefs = user.profile.jobPreferences ? JSON.parse(user.profile.jobPreferences) : {};
     
+    const userSkillsArray = user.profile.skills ? JSON.parse(user.profile.skills) : [];
     const userSummary = `
       Full Name: ${user.fullName}
-      Skills: ${user.profile.skills?.join(', ') || 'Not specified'}
+      Skills: ${(Array.isArray(userSkillsArray) ? userSkillsArray : []).join(', ') || 'Not specified'}
       Experience: ${user.profile.experience || 'Not specified'}
       Education: ${user.profile.education || 'Not specified'}
       Preferences: Looking for roles in ${prefs.industries?.join(', ') || 'any industry'}, 
@@ -35,12 +36,13 @@ export const calculateMatchScore = async (userId: string, jobId: string): Promis
                    Salary expectation: ${prefs.salaryRange || 'any'}.
     `;
 
+    const jobSkillsArray = job.requiredSkills ? JSON.parse(job.requiredSkills) : [];
     const jobSummary = `
       Job Title: ${job.title}
       Company: ${job.companyName}
       Location: ${job.location}
       Description: ${job.description}
-      Required Skills: ${job.requiredSkills?.join(', ') || 'Not specified'}
+      Required Skills: ${(Array.isArray(jobSkillsArray) ? jobSkillsArray : []).join(', ') || 'Not specified'}
     `;
 
     const prompt = `
@@ -76,8 +78,10 @@ export const calculateMatchScore = async (userId: string, jobId: string): Promis
     // const score = parseInt(response.choices[0].message.content?.trim() || '0', 10);
     
     // Using a deterministic "mock" score based on shared skills for now
-    const userSkills = new Set(user.profile.skills?.map(s => s.toLowerCase()) || []);
-    const jobSkills = new Set(job.requiredSkills?.map(s => s.toLowerCase()) || []);
+    const userSkillsParsed = user.profile.skills ? JSON.parse(user.profile.skills) : [];
+    const jobSkillsParsed = job.requiredSkills ? JSON.parse(job.requiredSkills) : [];
+    const userSkills = new Set((Array.isArray(userSkillsParsed) ? userSkillsParsed : []).map((s: string) => s.toLowerCase()));
+    const jobSkills = new Set((Array.isArray(jobSkillsParsed) ? jobSkillsParsed : []).map((s: string) => s.toLowerCase()));
     const intersection = new Set([...userSkills].filter(skill => jobSkills.has(skill)));
     
     let mockScore = 0;
