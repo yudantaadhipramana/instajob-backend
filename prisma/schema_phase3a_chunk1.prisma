@@ -1,0 +1,125 @@
+// INSTAJOB PHASE 3A — PRISMA SCHEMA ADDITIONS
+// File: prisma/schema_phase3a_chunk1.prisma
+// Purpose: Job & Application models for bot automation
+// Chunk: 1 of 2 (models 1-2)
+
+// ============================================
+// MODEL 1: JOB (Job Discovery Tracking)
+// ============================================
+
+model Job {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  title           String
+  company         String
+  location        String
+  salaryMin       Int?
+  salaryMax       Int?
+  source          String   // "linkedin", "indeed", "glassdoor", "custom"
+  url             String   @unique
+  description     String   @db.Text
+  requirements    String   @db.Text // JSON array
+  benefits        String   @db.Text // JSON array
+  postedDate      DateTime
+  matchScore      Float    @default(0.0) // 0.0-1.0 relevance score
+  status          String   @default("pending") // "pending", "applied", "rejected", "interview", "offer"
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications    Application[]
+
+  // Indexes
+  @@index([userId])
+  @@index([source])
+  @@index([status])
+  @@index([matchScore])
+  @@unique([userId, url]) // Prevent duplicate job entries per user
+}
+
+// ============================================
+// MODEL 2: APPLICATION (Job Application Tracking)
+// ============================================
+
+model Application {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  jobId           Int
+  emailSentTo     String
+  sentDate        DateTime
+  status          String   @default("sent") // "sent", "responded", "interview", "rejected", "failed", "no_response"
+  responseReceived Boolean  @default(false)
+  responseDate    DateTime?
+  responseContent String?  @db.Text // Full email response
+  emailBounced    Boolean  @default(false)
+  bounceReason    String?
+  emailTemplate   String   @default("default") // Template ID used
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId])
+  @@index([jobId])
+  @@index([status])
+  @@index([sentDate])
+  @@unique([userId, jobId]) // One application per user-job pair
+}
+
+// ============================================
+// END OF CHUNK 1 (Models 1-2)
+// NEXT CHUNK: BotConfig + BotStatus models
+// ============================================
+
+// ============================================
+// MODEL 3: BOTCONFIG (Bot Configuration)
+// ============================================
+
+model BotConfig {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  botType         String   // "scout", "sender", "fleet"
+  name            String   @default("config_1")
+  configData      String   @db.Text // JSON config (keywords, filters, etc.)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([botType])
+}
+
+// ============================================
+// MODEL 4: BOTSTATUS (Bot Runtime Status)
+// ============================================
+
+model BotStatus {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  processId       String   @unique
+  botType         String   // "scout", "sender", "fleet"
+  status          String   @default("stopped") // "running", "stopped", "paused", "error"
+  uptimeSeconds   Int      @default(0)
+  jobsProcessed   Int      @default(0)
+  applicationsSent Int     @default(0)
+  errorCount      Int      @default(0)
+  metricsJson     String   @db.Text @default("{}")
+  lastUpdate      DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([status])
+}
+
+// Add to User model: relations
+// jobs       Job[]
+// applications Application[]
+// botConfigs BotConfig[]
+// botStatus  BotStatus[]
