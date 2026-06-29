@@ -46,6 +46,8 @@ model User {
   achievements   Achievement[]
   matchScores    JobMatchScore[]
   bookmarks      JobBookmark[]
+  botConfigs     BotConfig[]
+  botStatus      BotStatus[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -209,4 +211,41 @@ model Achievement {
 
   @@unique([userId, title])
   @@index([userId])
+}
+
+// ============================================
+// PHASE 3A: BOT CONTROL & AUTOMATION MODELS
+// ============================================
+
+model BotConfig {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botType         String   // "scout", "sender", "fleet"
+  name            String   @default("config_1")
+  configData      String   // JSON config (keywords, filters, templates, etc.)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([botType])
+}
+
+model BotStatus {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processId       String   @unique
+  botType         String   // "scout", "sender", "fleet"
+  status          String   @default("stopped") // "running", "stopped", "paused", "error"
+  uptimeSeconds   Int      @default(0)
+  jobsProcessed   Int      @default(0)
+  applicationsSent Int     @default(0)
+  errorCount      Int      @default(0)
+  metricsJson     String   @default("{}")
+  lastUpdate      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }

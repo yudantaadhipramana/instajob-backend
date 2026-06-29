@@ -8,6 +8,8 @@ const prisma = new PrismaClient();
 
 // Import routes & middleware
 const authRoutes = require('./src/routes/authRoutes');
+const { registerScoutRoutes } = require('./src/routes/scoutRoutes');
+const { registerSenderRoutes } = require('./src/routes/senderRoutes');
 const { corsOptions, requestLogger, errorHandler } = require('./src/middleware/authMiddleware');
 
 const fastify = Fastify({
@@ -51,6 +53,12 @@ fastify.get('/api/health', async (request, reply) => {
 // Register auth routes
 fastify.register(async (fastify) => {
   await authRoutes.registerAuthRoutes(fastify);
+});
+
+// Register bot control routes (Phase 3A)
+fastify.register(async (fastify) => {
+  await registerScoutRoutes(fastify);
+  await registerSenderRoutes(fastify);
 });
 
 // Graceful shutdown
