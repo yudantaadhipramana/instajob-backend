@@ -61,11 +61,19 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           avatarUrl: payload.picture,
         });
 
+        // Check subscription status to determine scopes
+        const subscription = await (global as any).prisma.subscription.findUnique({
+          where: { userId: user.id },
+        });
+        
+        const scopes = subscription?.status === 'active' ? ['extension_access'] : [];
+
         const jwtToken = (fastify as any).jwt.sign(
           {
             id: user.id,
             email: user.email,
             fullName: user.fullName,
+            scopes,
           },
           { expiresIn: '7d' }
         );
@@ -130,12 +138,20 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           password: hashedPassword,
         });
 
+        // Check subscription status to determine scopes
+        const subscription = await (global as any).prisma.subscription.findUnique({
+          where: { userId: user.id },
+        });
+        
+        const scopes = subscription?.status === 'active' ? ['extension_access'] : [];
+
         // Generate JWT token
         const jwtToken = (fastify as any).jwt.sign(
           {
             id: user.id,
             email: user.email,
             fullName: user.fullName,
+            scopes,
           },
           { expiresIn: '7d' }
         );
@@ -185,12 +201,20 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           return reply.code(401).send({ message: 'Invalid email or password' });
         }
 
+        // Check subscription status to determine scopes
+        const subscription = await (global as any).prisma.subscription.findUnique({
+          where: { userId: user.id },
+        });
+        
+        const scopes = subscription?.status === 'active' ? ['extension_access'] : [];
+
         // Generate JWT token
         const jwtToken = (fastify as any).jwt.sign(
           {
             id: user.id,
             email: user.email,
             fullName: user.fullName,
+            scopes,
           },
           { expiresIn: '7d' }
         );
@@ -211,6 +235,54 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
       } catch (error: any) {
         console.error('Login error:', error);
         return reply.code(500).send({ message: 'Login failed' });
+      }
+    }
+  );
+
+  // Validate extension token endpoint
+  fastify.post<{ Body: { token: string } }>(
+    '/api/auth/validate-extension-token',
+    async (request: FastifyRequest<{ Body: { token: string } }>, reply: FastifyReply) => {
+      try {
+        const { token } = request.body;
+        if (!token) {
+          return reply.code(400).send({ error: 'Token is required' });
+        }
+
+        // Verify JWT token
+        let decoded: any;
+        try {
+          decoded = (fastify as any).jwt.verify(token);
+        } catch (err) {
+          return reply.code(401).send({ error: 'Invalid or expired token' });
+        }
+
+        // Check if token has extension_access scope
+        if (!decoded.scopes || !decoded.scopes.includes('extension_access')) {
+          return reply.code(403).send({ error: 'Token does not have extension_access scope' });
+        }
+
+        // Verify user still exists (using any type for prisma)
+        const prisma = (global as any).prisma;
+        const user = await prisma.user.findUnique({
+          where: { id: decoded.id },
+        });
+        if (!user) {
+          return reply.code(404).send({ error: 'User not found' });
+        }
+
+        // Return validation success with user info
+        return reply.code(200).send({
+          valid: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            fullName: user.fullName,
+          },
+        });
+      } catch (error: any) {
+        console.error('Token validation error:', error);
+        return reply.code(500).send({ error: 'Token validation failed' });
       }
     }
   );
