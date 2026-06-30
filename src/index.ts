@@ -36,6 +36,7 @@ import { applicationRoutes } from './routes/applications';
 import { dashboardRoutes, userRoutes } from './routes/user';
 import { resumeRoutes, subscriptionRoutes } from './routes/resume';
 import { botManagementRoutes } from './routes/bots';
+import { fleetManagementRoutes } from './routes/fleets';
 
 fastify.register(jobRoutes);
 fastify.register(applicationRoutes);
@@ -44,6 +45,7 @@ fastify.register(userRoutes);
 fastify.register(resumeRoutes);
 fastify.register(subscriptionRoutes);
 fastify.register(botManagementRoutes);
+fastify.register(fleetManagementRoutes);
 
 // Database initialization
 import { pool } from './lib/db';
