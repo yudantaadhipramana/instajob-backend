@@ -9,8 +9,19 @@ const fastify = Fastify({
 });
 
 // Register plugins
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3001',
+      'https://instajob.my.id',
+      'https://www.instajob.my.id',
+    ];
+
 fastify.register(cors, {
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001', 'http://127.0.0.1:3001'],
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -21,6 +32,15 @@ fastify.register(cors, {
 fastify.register(jwt, {
   secret: process.env.JWT_SECRET || 'your-secret-key-here',
 });
+
+// Validate JWT secret on startup
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  WARNING: Using default JWT secret. Set JWT_SECRET environment variable for production.');
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ ERROR: JWT_SECRET not set in production. Exiting.');
+    process.exit(1);
+  }
+}
 
 // Health check
 fastify.get('/health', async (request, reply) => {
