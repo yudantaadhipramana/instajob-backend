@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { OAuth2Client } from 'google-auth-library';
 import { getOrCreateGoogleUser, findUserByEmail, createUser } from '../lib/db';
 import * as bcrypt from 'bcrypt';
+import { LoginResponseSchema } from '../lib/schemas';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -69,7 +70,7 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           { expiresIn: '7d' }
         );
 
-        return reply.code(200).send({
+        const response = {
           token: jwtToken,
           user: {
             id: user.id,
@@ -78,7 +79,12 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
             googleId: user.googleId,
             avatarUrl: user.avatarUrl,
           },
-        } as LoginResponse);
+        };
+
+        // Validate response schema
+        LoginResponseSchema.parse(response);
+
+        return reply.code(200).send(response);
       } catch (error: any) {
         console.error('Google auth error:', {
           message: error?.message,
@@ -134,14 +140,19 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           { expiresIn: '7d' }
         );
 
-        return reply.code(201).send({
+        const response = {
           token: jwtToken,
           user: {
             id: user.id,
             email: user.email,
             fullName: user.fullName,
           },
-        } as LoginResponse);
+        };
+
+        // Validate response schema
+        LoginResponseSchema.parse(response);
+
+        return reply.code(201).send(response);
       } catch (error: any) {
         console.error('Registration error:', error);
         return reply.code(500).send({ message: 'Registration failed' });
@@ -184,14 +195,19 @@ export async function googleAuthRoutes(fastify: FastifyInstance) {
           { expiresIn: '7d' }
         );
 
-        return reply.code(200).send({
+        const response = {
           token: jwtToken,
           user: {
             id: user.id,
             email: user.email,
             fullName: user.fullName,
           },
-        } as LoginResponse);
+        };
+
+        // Validate response schema
+        LoginResponseSchema.parse(response);
+
+        return reply.code(200).send(response);
       } catch (error: any) {
         console.error('Login error:', error);
         return reply.code(500).send({ message: 'Login failed' });
