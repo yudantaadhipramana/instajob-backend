@@ -22,11 +22,17 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   
-  // Relations
+  // Relations - SECTION 1-2
   jobPreferences  JobPreferences?
   applications    Application[]
   savedJobs       SavedJob[]
   activityLogs    ActivityLog[]
+  
+  // Relations - SECTION 3A: Bot Ecosystem
+  ownedBots       BotProfile[] @relation("BotOwner")
+  ownedFleets     BotFleet[] @relation("FleetOwner")
+  subscriptionTokens SubscriptionToken[] @relation("SubscriptionTokens")
+  jobBatches      JobBatch[] @relation("JobBatches")
 }
 
 model JobPreferences {
@@ -111,4 +117,116 @@ model ActivityLog {
   createdAt       DateTime  @default(now())
   
   @@index([userId, createdAt])
+}
+
+// SECTION 3A: BOT ECOSYSTEM MODELS
+
+model BotProfile {
+  id              String    @id @default(cuid())
+  botId           String    @unique // Telegram bot token or custom ID
+  botName         String
+  telegramBotToken String? // Optional: for Telegram bots
+  botStatus       String    @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  
+  ownerUserId     String
+  owner           User      @relation("BotOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  
+  // Fleet relationship
+  fleetId         String?
+  fleet           BotFleet? @relation(fields: [fleetId], references: [id], onDelete: SetNull)
+  
+  // Bot activity tracking
+  lastHeartbeat   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  batches         JobBatch[]
+  analytics       BotAnalytics[]
+  
+  @@index([ownerUserId])
+  @@index([botStatus])
+  @@index([fleetId])
+}
+
+model BotFleet {
+  id              String    @id @default(cuid())
+  fleetName       String
+  description     String?
+  
+  ownerUserId     String
+  owner           User      @relation("FleetOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  
+  // Bot members
+  bots            BotProfile[]
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([ownerUserId])
+}
+
+model SubscriptionToken {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation("SubscriptionTokens", fields: [userId], references: [id], onDelete: Cascade)
+  
+  tokenHash       String    @unique // SHA256 hash of actual token
+  scopes          String[]  // ["job_discovery", "bot_control", "analytics"]
+  
+  expiresAt       DateTime
+  isRevoked       Boolean   @default(false)
+  
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([isRevoked])
+}
+
+model JobBatch {
+  id              String    @id @default(cuid())
+  
+  botId           String
+  bot             BotProfile @relation(fields: [botId], references: [id], onDelete: Cascade)
+  
+  userId          String
+  user            User      @relation("JobBatches", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Job references
+  jobIds          String[]  // Array of job IDs from Job model
+  
+  // Batch status
+  status          String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+  
+  @@index([botId])
+  @@index([userId])
+  @@index([status])
+}
+
+model BotAnalytics {
+  id              String    @id @default(cuid())
+  
+  botId           String
+  bot             BotProfile @relation(fields: [botId], references: [id], onDelete: Cascade)
+  
+  // Analytics date (daily aggregation)
+  date            DateTime  @default(now())
+  
+  // Metrics
+  jobsDiscovered  Int       @default(0)
+  jobsApplied     Int       @default(0)
+  successRate     Float     @default(0) // 0-1 scale
+  averageTimePerJob Int     @default(0) // milliseconds
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([botId])
+  @@index([date])
 }
