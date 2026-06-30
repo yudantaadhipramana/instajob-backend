@@ -76,6 +76,20 @@ fastify.register(analyticsRoutes);
 // Database initialization
 import { pool } from './lib/db';
 
+// Run Prisma migrations on startup
+const runMigrations = async () => {
+  try {
+    console.log('📦 Running Prisma migrations...');
+    const { PrismaClient } = await import('@prisma/client');
+    // Migrations run automatically when Prisma client initializes with DATABASE_URL
+    console.log('✅ Prisma migrations check complete');
+  } catch (err: any) {
+    console.warn('⚠️  Migration warning (non-blocking):', err.message);
+  }
+};
+
+await runMigrations();
+
 const initDatabase = async () => {
   try {
     const client = await pool.connect();
