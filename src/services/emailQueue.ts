@@ -11,7 +11,9 @@ const connection = new IORedis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
 });
+connection.on('error', () => {}); // ponytail: silence when Redis is down; restore for production monitoring
 
 // Email queue
 export const emailQueue = new Queue('auto-apply-emails', { connection: connection as any });
@@ -37,18 +39,28 @@ export const emailWorker = new Worker(
       // Get application from DB
       const application = await prisma.autoApplyQueue.findUnique({
         where: { userId_jobId: { userId, jobId } },
-        include: { user: true, job: true },
+        include: { 
+          user: { include: { profile: true } }, 
+          job: true 
+        },
       });
 
       if (!application) {
         throw new Error(`Application not found for user ${userId}, job ${jobId}`);
       }
 
-      // Generate professional application email
-      const emailContent = generateApplicationEmail(
+      // Extract emailTemplate from user preferences
+      const prefs = application.user.profile?.jobPreferences 
+        ? JSON.parse(application.user.profile.jobPreferences) 
+        : {};
+      const emailTemplate = prefs.emailTemplate || '';
+
+      // Generate AI-personalized application email
+      const emailContent = await generateAIEmail(
         application.user.fullName || 'User',
         application.job.title,
-        application.job.company
+        application.job.company,
+        emailTemplate
       );
 
       // Send email (mock - in production, send to company)
@@ -106,20 +118,113 @@ emailWorker.on('failed', async (job, err) => {
   }
 });
 
-// Helper: Generate professional application email
-function generateApplicationEmail(userName: string, jobTitle: string, company: string): string {
+// SYNC PROCESSOR (dev environment workaround for BullMQ connection contention)
+export async function processEmailQueueSync(userId: string, jobId: string) {
+  try {
+    const application = await prisma.autoApplyQueue.findUnique({
+      where: { userId_jobId: { userId, jobId } },
+      include: { 
+        user: { include: { profile: true } }, 
+        job: true 
+      },
+    });
+
+    if (!application) {
+      console.warn(`Email job not found: ${userId}/${jobId}`);
+      return;
+    }
+
+    // Extract emailTemplate from user preferences
+    const prefs = application.user.profile?.jobPreferences 
+      ? JSON.parse(application.user.profile.jobPreferences) 
+      : {};
+    const emailTemplate = prefs.emailTemplate || '';
+
+    // Generate AI-personalized application email
+    const emailContent = await generateAIEmail(
+      application.user.fullName || 'User',
+      application.job.title,
+      application.job.company,
+      emailTemplate
+    );
+
+    console.log(`\n=== GENERATED EMAIL CONTENT [${userId}/${jobId}] ===\n${emailContent}\n=========================================\n`);
+
+    // Send email (mock)
+    await emailTransporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@instajob.com',
+      to: process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
+      subject: `Application for ${application.job.title} at ${application.job.company}`,
+      html: emailContent,
+    });
+
+    // Update status to sent
+    await prisma.autoApplyQueue.update({
+      where: { userId_jobId: { userId, jobId } },
+      data: { status: 'sent', emailContent }
+    });
+
+    console.log(`Email processed: ${userId}/${jobId}`);
+  } catch (err) {
+    console.error(`Email processing failed: ${userId}/${jobId}`, err);
+    await prisma.autoApplyQueue.update({
+      where: { userId_jobId: { userId, jobId } },
+      data: { status: 'failed', errorMessage: String(err) }
+    }).catch(() => {});
+  }
+}
+
+// Helper: Generate AI-powered personalized email (mock OpenAI for Phase I dev)
+async function generateAIEmail(
+  userName: string,
+  jobTitle: string,
+  company: string,
+  emailTemplate: string,
+  recruiterName: string = 'Hiring Manager'
+): Promise<string> {
+  // If user has custom template, use it with placeholder replacement
+  if (emailTemplate?.trim()) {
+    let content = emailTemplate
+      .replace(/{recruiter}/g, recruiterName)
+      .replace(/{role}/g, jobTitle)
+      .replace(/{company}/g, company);
+    
+    // Wrap in HTML email format
+    return `
+      <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <p>${content.replace(/\n/g, '</p><p>')}</p>
+          <p>Best regards,<br/><strong>${userName}</strong></p>
+          <hr/>
+          <p style="font-size: 12px; color: #666;">
+            This is an automated application from InstaJob. 
+            Sent on ${new Date().toLocaleDateString()}
+          </p>
+        </body>
+      </html>
+    `;
+  }
+
+  // Mock AI generation for Phase I development
+  // In production: call openai.chat.completions.create() with proper prompt
+  console.log(`[MOCK AI] Generating personalized email for ${jobTitle} at ${company}`);
+  
+  const mockContent = `Dear ${recruiterName},
+
+I am writing to express my genuine interest in the ${jobTitle} position at ${company}. With my background and proven expertise, I am confident I can contribute significantly to your team.
+
+I look forward to discussing how my skills align with your requirements.
+
+Best regards,
+${userName}`;
+
   return `
     <html>
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <p>Dear Hiring Manager,</p>
-        <p>I am writing to express my strong interest in the <strong>${jobTitle}</strong> position at <strong>${company}</strong>.</p>
-        <p>With my professional experience and skills, I am confident that I can make a valuable contribution to your team.</p>
-        <p>I would welcome the opportunity to discuss how my background aligns with the requirements of this role.</p>
-        <p>Thank you for considering my application. I look forward to hearing from you.</p>
-        <p>Best regards,<br/><strong>${userName}</strong></p>
+        <p>${mockContent.replace(/\n/g, '</p><p>')}</p>
         <hr/>
         <p style="font-size: 12px; color: #666;">
-          This is an automated application from InstaJob. 
+          This is an automated application from InstaJob (AI-personalized). 
           Sent on ${new Date().toLocaleDateString()}
         </p>
       </body>

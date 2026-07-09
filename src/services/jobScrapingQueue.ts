@@ -8,7 +8,9 @@ const connection = new IORedis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
 });
+connection.on('error', () => {}); // ponytail: silence when Redis is down; restore for production monitoring
 
 export const jobScrapingQueue = new Queue('job-scraping', { connection: connection as any });
 

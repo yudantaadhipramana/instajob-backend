@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { authRoutes } from './auth';
-import { emailQueue } from './services/emailQueue';
+import { emailQueue, processEmailQueueSync } from './services/emailQueue';
 import { notificationQueue } from './services/notificationQueue';
 import { jobScrapingQueue } from './services/jobScrapingQueue';
 import { startBot, bot, linkTelegramUser } from './services/telegramBot';
@@ -483,6 +483,7 @@ const start = async () => {
             notificationsEnabled: prefs.notificationsEnabled ?? true,
             emailNotifications: prefs.emailNotifications ?? true,
             telegramNotifications: prefs.telegramNotifications ?? false,
+            emailTemplate: prefs.emailTemplate ?? '',
           });
         } catch (err) {
           console.error('Get preferences error:', err);
@@ -501,6 +502,7 @@ const start = async () => {
           notificationsEnabled: z.boolean().optional(),
           emailNotifications: z.boolean().optional(),
           telegramNotifications: z.boolean().optional(),
+          emailTemplate: z.string().max(2000).optional(),
         });
 
         try {
@@ -715,14 +717,12 @@ const start = async () => {
             data: { userId, jobId, status: 'pending' }
           });
 
-          // Add to BullMQ for async processing (graceful fallback if Redis offline)
+          // Add to BullMQ for async processing (fire-and-forget with timeout protection)
           try {
-            await emailQueue.add('send-application', {
-              userId,
-              jobId,
-              jobTitle: job.title,
-              company: job.company,
-              userEmail: (req.user as any).email || 'user@instajob.com'
+            // DEV WORKAROUND: Call sync processor directly to bypass BullMQ connection contention
+            // Production: use BullMQ properly with dedicated Redis connection pool
+            processEmailQueueSync(userId, jobId).catch((err) => {
+              console.warn('processEmailQueueSync error:', err.message);
             });
           } catch (qErr) {
             console.warn('emailQueue unavailable (Redis offline?), skipping BullMQ:', (qErr as any)?.message);

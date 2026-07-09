@@ -169,9 +169,17 @@ async function handleSenderStop(request, reply) {
 // EXPORT ROUTE HANDLERS (CHUNK 1)
 // ============================================
 
+async function registerSenderRoutes(fastify, options) {
+  fastify.post('/api/sender/config', { onRequest: [fastify.authenticate] }, handleSenderConfig);
+  fastify.post('/api/sender/start', { onRequest: [fastify.authenticate] }, handleSenderStart);
+  fastify.post('/api/sender/stop', { onRequest: [fastify.authenticate] }, handleSenderStop);
+  fastify.log.info('✅ Sender bot routes registered');
+}
+
 module.exports = {
   handleSenderConfig,
   handleSenderStart,
   handleSenderStop,
   activeSenderProcesses,
+  registerSenderRoutes,
 };

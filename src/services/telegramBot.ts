@@ -36,13 +36,7 @@ bot.start(async (ctx) => {
     }
   }
 
-  ctx.reply('Halo! Selamat datang di InstaJob Bot 🚀\n\nHubungkan akunmu dengan mengklik tombol di bawah ini atau ketik `/connect [KODE_REFERRAL]` Anda.', {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "Buka Dashboard (Web)", url: process.env.FRONTEND_URL || "http://localhost:3000/dashboard" }]
-      ]
-    }
-  });
+  ctx.reply('Halo! Selamat datang di InstaJob Bot 🚀\n\nKetik /jobs untuk melihat lowongan terbaru.\nKetik /connect [KODE] untuk menghubungkan akun InstaJob Anda.\nKetik /stats untuk melihat statistik lamaran Anda.');
 });
 
 // Command: /connect [KODE_REFERRAL]
@@ -98,12 +92,10 @@ bot.command('stats', async (ctx) => {
     const appliedToday = quota?.appliedToday || 0;
     const totalApplied = quota?.totalApplied || 0;
 
-    return ctx.reply(`📊 *Statistik InstaJob Anda*:\n\n` +
+    return ctx.reply(`📊 Statistik InstaJob Anda:\n\n` +
       `- Total Lamaran: ${applications}\n` +
       `- Terkirim Hari Ini: ${appliedToday}/5\n` +
-      `- Total Auto-Apply: ${totalApplied}`,
-      { parse_mode: 'Markdown' }
-    );
+      `- Total Auto-Apply: ${totalApplied}`);
   } catch (err) {
     console.error('Stats error:', err);
     return ctx.reply('Gagal mengambil statistik.');
@@ -122,18 +114,18 @@ bot.command('jobs', async (ctx) => {
       return ctx.reply('Belum ada lowongan pekerjaan baru saat ini.');
     }
 
-    let response = '💼 *Lowongan Pekerjaan Terbaru*:\n\n';
+    let response = '💼 Lowongan Pekerjaan Terbaru:\n\n';
     jobs.forEach((job, index) => {
       const salaryStr = job.salaryMin && job.salaryMax 
         ? `\n💰 Gaji: Rp${job.salaryMin.toLocaleString()} - Rp${job.salaryMax.toLocaleString()}`
         : '';
       const remoteStr = job.remote ? ' (Remote)' : ' (Onsite/Hybrid)';
       
-      response += `${index + 1}. *${job.title}* di *${job.company}* (${job.location})${remoteStr}${salaryStr}\n` +
+      response += `${index + 1}. ${job.title} di ${job.company} (${job.location})${remoteStr}${salaryStr}\n` +
         `🔗 Detail: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobs/${job.id}\n\n`;
     });
 
-    return ctx.reply(response, { parse_mode: 'Markdown' });
+    return ctx.reply(response);
   } catch (err) {
     console.error('Jobs error:', err);
     return ctx.reply('Gagal mengambil daftar pekerjaan.');

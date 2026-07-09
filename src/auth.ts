@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -15,28 +16,27 @@ interface LoginBody {
   password: string;
 }
 
+const RegisterBodySchema = z.object({
+  email: z.string().email({ message: "Invalid email format" }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters" }).max(72, { message: "Password is too long" }),
+  fullName: z.string().min(1, { message: "Full name is required" }).max(100).optional(),
+});
+
+const LoginBodySchema = z.object({
+  email: z.string().email({ message: "Invalid email format" }),
+  password: z.string().min(1, { message: "Password is required" }),
+});
+
 export async function authRoutes(fastify: FastifyInstance) {
   // Register
   fastify.post('/api/auth/register', async (req: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply) => {
     try {
-      const { email, password, fullName } = req.body;
-
-      // Validasi input ketat
-      if (!email || !password) {
-        return reply.code(400).send({ error: 'Email and password required' });
+      const validationResult = RegisterBodySchema.safeParse(req.body);
+      if (validationResult.success === false) {
+        const errors = validationResult.error.issues.map(e => e.message).join(', ');
+        return reply.code(400).send({ error: errors });
       }
-      if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return reply.code(400).send({ error: 'Invalid email format' });
-      }
-      if (typeof password !== 'string' || password.length < 6) {
-        return reply.code(400).send({ error: 'Password must be at least 6 characters' });
-      }
-      if (password.length > 72) { // bcrypt limit is 72 bytes
-        return reply.code(400).send({ error: 'Password is too long' });
-      }
-      if (fullName && (typeof fullName !== 'string' || fullName.length > 100)) {
-        return reply.code(400).send({ error: 'Invalid fullName' });
-      }
+      const { email, password, fullName } = validationResult.data;
 
       // Cek email sudah terdaftar
       const existing = await prisma.user.findUnique({ where: { email } });
@@ -81,14 +81,12 @@ export async function authRoutes(fastify: FastifyInstance) {
   // Login
   fastify.post('/api/auth/login', async (req: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) => {
     try {
-      const { email, password } = req.body;
-
-      if (!email || !password) {
-        return reply.code(400).send({ error: 'Email and password required' });
+      const validationResult = LoginBodySchema.safeParse(req.body);
+      if (validationResult.success === false) {
+        const errors = validationResult.error.issues.map(e => e.message).join(', ');
+        return reply.code(400).send({ error: errors });
       }
-      if (typeof email !== 'string' || typeof password !== 'string') {
-        return reply.code(400).send({ error: 'Invalid credentials format' });
-      }
+      const { email, password } = validationResult.data;
 
       // Cari user
       const user = await prisma.user.findUnique({ where: { email } });

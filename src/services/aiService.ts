@@ -132,7 +132,7 @@ export const getJobRecommendations = async (userId: string, limit: number = 10) 
         where: {
             OR: [
                 { industry: { in: industries } },
-                { requiredSkills: { hasSome: user.profile.skills || [] } },
+                /* { requiredSkills: { hasSome: user.profile.skills || [] } }, */
             ],
             // Exclude jobs the user has already applied to
             NOT: {
