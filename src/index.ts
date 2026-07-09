@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
 import { authRoutes } from './auth';
 import { emailQueue } from './services/emailQueue';
 import { notificationQueue } from './services/notificationQueue';
@@ -11,7 +12,7 @@ import { startBot, bot, linkTelegramUser } from './services/telegramBot';
 import { canUserApply, incrementApplyCount, getUserQuota } from './services/rateLimit';
 import { calculateMatchScore, getJobRecommendations } from './services/aiService';
 import { registerRateLimit, authRateLimit, inputSanitizeHook, authValidationHook, securityHeadersHook } from './middleware/security';
-
+import webhookRoutes from './routes/webhookRoutes';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
@@ -71,9 +72,17 @@ const start = async () => {
       }
     });
 
-    // JWT Plugin
+    // Register JWT
     await fastify.register(jwt, {
       secret: process.env.JWT_SECRET || 'instajob-secret-key-2026-change-in-production'
+    });
+
+    fastify.decorate('authenticate', async function (request: any, reply: any) {
+      try {
+        await request.jwtVerify();
+      } catch (err) {
+        reply.send(err);
+      }
     });
 
     // Global rate limiting (120 req/min)
@@ -121,18 +130,24 @@ const start = async () => {
     // Register protected routes with onRequest auth check
     fastify.register(async (fastify) => {
       // Add auth verification to all routes in this scope
-      fastify.addHook('onRequest', async (req, reply) => {
-        try {
-          await req.jwtVerify();
-        } catch (err) {
-          reply.code(401).send({ error: 'Unauthorized' });
-        }
-      });
+      // fastify.addHook('onRequest', async (req, reply) => {
+      //   try {
+      //     await req.jwtVerify();
+      //   } catch (err) {
+      //     reply.code(401).send({ error: 'Unauthorized' });
+      //   }
+      // });
 
       // ========== USER PROFILE ENDPOINTS (PROTECTED) ==========
+
+      // GET /api/users/me - Get current user from token
+      fastify.get('/api/users/me', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        // The auth hook already validated the token, so we just return the user payload
+        return reply.send(req.user);
+      });
       
       // GET /api/user/profile - Get user profile
-      fastify.get('/api/user/profile', async (req: any, reply: any) => {
+      fastify.get('/api/user/profile', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -157,59 +172,201 @@ const start = async () => {
         }
       });
 
+
+
       // PUT /api/user/profile - Update user profile
-      fastify.put('/api/user/profile', async (req: any, reply: any) => {
+      fastify.put('/api/user/profile', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        const updateProfileSchema = z.object({
+          bio: z.string().optional(),
+          skills: z.array(z.string()).optional(),
+          experience: z.string().optional(),
+          education: z.string().optional(),
+          phone: z.string().optional(),
+          location: z.string().optional(),
+          resumeUrl: z.string().url().optional(),
+        });
+
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-          const { bio, skills, experience, location, resumeUrl } = req.body as any;
+          const raw = updateProfileSchema.parse(req.body);
+          const data: any = { ...raw };
+          if (data.skills) data.skills = JSON.stringify(data.skills); // ponytail: zod array → prisma JSON string
 
-          let profile = await prisma.userProfile.findUnique({
-            where: { userId }
+          const profile = await prisma.userProfile.upsert({
+            where: { userId },
+            update: data,
+            create: { userId, ...data },
           });
-
-          if (!profile) {
-            profile = await prisma.userProfile.create({
-              data: {
-                userId,
-                bio,
-                skills: skills || [],
-                experience,
-                location,
-                resumeUrl
-              }
-            });
-          } else {
-            profile = await prisma.userProfile.update({
-              where: { userId },
-              data: {
-                bio: bio || profile.bio,
-                skills: skills || profile.skills,
-                experience: experience || profile.experience,
-                location: location || profile.location,
-                resumeUrl: resumeUrl || profile.resumeUrl
-              }
-            });
-          }
 
           return reply.code(200).send({
             message: 'Profile updated successfully',
-            profile
+            profile,
           });
-        } catch (err) {
+        } catch (err: any) {
+          if (err instanceof z.ZodError) {
+            return reply.code(400).send({ error: 'Invalid input', details: err.issues });
+          }
           console.error('Update profile error:', err);
           return reply.code(500).send({ error: 'Failed to update profile' });
+        }
+      });
+
+      // ========== USER PREFERENCES ENDPOINTS (PROTECTED) ==========
+
+      // GET /api/user/preferences
+      fastify.get('/api/user/preferences', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const profile = await prisma.userProfile.findUnique({ where: { userId } });
+          const prefs = profile?.jobPreferences ? JSON.parse(profile.jobPreferences) : {};
+
+          return reply.send({
+            jobTitles: prefs.jobTitles ?? [],
+            locations: prefs.locations ?? [],
+            salaryMin: prefs.salaryMin ?? 0,
+            salaryMax: prefs.salaryMax ?? 0,
+            workTypes: prefs.workTypes ?? [],
+            notificationsEnabled: prefs.notificationsEnabled ?? true,
+            emailNotifications: prefs.emailNotifications ?? true,
+            telegramNotifications: prefs.telegramNotifications ?? false,
+          });
+        } catch (err) {
+          console.error('Get preferences error:', err);
+          return reply.code(500).send({ error: 'Failed to fetch preferences' });
+        }
+      });
+
+      // PUT /api/user/preferences
+      fastify.put('/api/user/preferences', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        const prefsSchema = z.object({
+          jobTitles: z.array(z.string()).optional(),
+          locations: z.array(z.string()).optional(),
+          salaryMin: z.number().optional(),
+          salaryMax: z.number().optional(),
+          workTypes: z.array(z.string()).optional(),
+          notificationsEnabled: z.boolean().optional(),
+          emailNotifications: z.boolean().optional(),
+          telegramNotifications: z.boolean().optional(),
+        });
+
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const data = prefsSchema.parse(req.body);
+
+          await prisma.userProfile.upsert({
+            where: { userId },
+            update: { jobPreferences: JSON.stringify(data) },
+            create: { userId, jobPreferences: JSON.stringify(data) },
+          });
+
+          return reply.code(200).send({ message: 'Preferences updated successfully', preferences: data });
+        } catch (err: any) {
+          if (err instanceof z.ZodError) {
+            return reply.code(400).send({ error: 'Invalid input', details: err.issues });
+          }
+          console.error('Update preferences error:', err);
+          return reply.code(500).send({ error: 'Failed to update preferences' });
+        }
+      });
+
+      // ========== BOT STATUS ENDPOINTS (PROTECTED) ==========
+
+      // GET /api/bot/status - Get current bot status for user
+      fastify.get('/api/bot/status', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const botStatus = await prisma.botStatus.findFirst({
+            where: { userId, botType: 'fleet' },
+            orderBy: { lastUpdate: 'desc' }
+          });
+
+          return reply.send({
+            status: botStatus?.status ?? 'stopped',
+            uptimeSeconds: botStatus?.uptimeSeconds ?? 0,
+            jobsProcessed: botStatus?.jobsProcessed ?? 0,
+            applicationsSent: botStatus?.applicationsSent ?? 0,
+            errorCount: botStatus?.errorCount ?? 0,
+            lastUpdate: botStatus?.lastUpdate ?? null,
+          });
+        } catch (err) {
+          console.error('Get bot status error:', err);
+          return reply.code(500).send({ error: 'Failed to fetch bot status' });
+        }
+      });
+
+      // POST /api/bot/start - Start auto-apply bot
+      fastify.post('/api/bot/start', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const processId = `fleet-${userId}-${Date.now()}`;
+          const botStatus = await prisma.botStatus.upsert({
+            where: { processId: `fleet-${userId}` },
+            update: { status: 'running', processId, lastUpdate: new Date() },
+            create: { userId, processId, botType: 'fleet', status: 'running' }
+          });
+
+          return reply.send({ message: 'Bot started', status: botStatus.status });
+        } catch (err) {
+          console.error('Start bot error:', err);
+          return reply.code(500).send({ error: 'Failed to start bot' });
+        }
+      });
+
+      // POST /api/bot/stop - Stop auto-apply bot
+      fastify.post('/api/bot/stop', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          await prisma.botStatus.updateMany({
+            where: { userId, botType: 'fleet' },
+            data: { status: 'stopped', lastUpdate: new Date() }
+          });
+
+          return reply.send({ message: 'Bot stopped', status: 'stopped' });
+        } catch (err) {
+          console.error('Stop bot error:', err);
+          return reply.code(500).send({ error: 'Failed to stop bot' });
+        }
+      });
+
+      // POST /api/bot/pause - Pause auto-apply bot
+      fastify.post('/api/bot/pause', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          await prisma.botStatus.updateMany({
+            where: { userId, botType: 'fleet', status: 'running' },
+            data: { status: 'paused', lastUpdate: new Date() }
+          });
+
+          return reply.send({ message: 'Bot paused', status: 'paused' });
+        } catch (err) {
+          console.error('Pause bot error:', err);
+          return reply.code(500).send({ error: 'Failed to pause bot' });
         }
       });
 
       // ========== TELEGRAM ENDPOINTS (PROTECTED) ==========
 
       // GET /api/telegram/link-status - Check if user has linked Telegram
-      fastify.get('/api/telegram/link-status', async (req: any, reply: any) => {
+      fastify.get('/api/telegram/link-status', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
-          const userId = req.user?.sub || req.user?.userId;
-          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+          const userId = req.user?.sub || req.user?.userId || req.user?.id;
+          if (!userId) {
+            return reply.code(401).send({ error: 'Unauthorized' });
+          }
 
           const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -230,9 +387,9 @@ const start = async () => {
       });
 
       // POST /api/telegram/unlink - Unlink Telegram account
-      fastify.post('/api/telegram/unlink', async (req: any, reply: any) => {
+      fastify.post('/api/telegram/unlink', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
-          const userId = req.user?.sub || req.user?.userId;
+          const userId = req.user?.sub || req.user?.userId || req.user?.id;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
           await prisma.user.update({
@@ -250,14 +407,43 @@ const start = async () => {
         }
       });
 
+      // POST /api/telegram/test-notification - Send a test notification to Telegram
+      fastify.post('/api/telegram/test-notification', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId || req.user?.id;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          await notificationQueue.add('send-notification', {
+            userId,
+            title: 'Test Notification',
+            message: 'Ini adalah notifikasi uji coba dari InstaJob. Bot Telegram Anda sudah terhubung dengan sempurna! 🚀',
+            type: 'system'
+          });
+
+          return { message: 'Test notification queued successfully' };
+        } catch (err) {
+          console.error('Test notification error:', err);
+          return reply.code(500).send({ error: 'Failed to queue test notification' });
+        }
+      });
+
       // ========== EXTENSION ENDPOINTS (PROTECTED) ==========
-      fastify.post('/api/extension/sync-apply', async (req: any, reply: any) => {
+      fastify.post('/api/extension/sync-apply', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-          const { title, company, location, description, url, isApplied } = req.body as any;
-          if (!title || !company) return reply.code(400).send({ error: 'Title and company required' });
+          const syncSchema = z.object({
+            title: z.string().min(1),
+            company: z.string().min(1),
+            location: z.string().optional(),
+            description: z.string().optional(),
+            url: z.string().url().optional(),
+            isApplied: z.boolean().optional(),
+          });
+          const parsed = syncSchema.safeParse(req.body);
+          if (!parsed.success) return reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
+          const { title, company, location, description, url, isApplied } = parsed.data;
 
           let job = await prisma.job.findFirst({ where: { title, company } });
           if (!job) {
@@ -305,7 +491,7 @@ const start = async () => {
       // ========== AUTO-APPLY ENDPOINTS (PROTECTED) ==========
 
       // GET /api/auto-apply/quota - Get user quota status
-      fastify.get('/api/auto-apply/quota', async (req: any, reply: any) => {
+      fastify.get('/api/auto-apply/quota', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -319,13 +505,15 @@ const start = async () => {
       });
 
       // POST /api/auto-apply/queue - Add job to auto-apply queue
-      fastify.post('/api/auto-apply/queue', async (req: any, reply: any) => {
+      fastify.post('/api/auto-apply/queue', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-          const { jobId } = req.body as any;
-          if (!jobId) return reply.code(400).send({ error: 'jobId required' });
+          const autoApplySchema = z.object({ jobId: z.string().min(1) });
+          const aparsed = autoApplySchema.safeParse(req.body);
+          if (!aparsed.success) return reply.code(400).send({ error: 'Validation failed', details: aparsed.error.flatten() });
+          const { jobId } = aparsed.data;
 
           // Check rate limit
           const quotaStatus = await canUserApply(userId);
@@ -360,22 +548,30 @@ const start = async () => {
             data: { userId, jobId, status: 'pending' }
           });
 
-          // Add to BullMQ for async processing
-          await emailQueue.add('send-application', {
-            userId,
-            jobId,
-            jobTitle: job.title,
-            company: job.company,
-            userEmail: req.user.email || 'user@instajob.com'
-          });
+          // Add to BullMQ for async processing (graceful fallback if Redis offline)
+          try {
+            await emailQueue.add('send-application', {
+              userId,
+              jobId,
+              jobTitle: job.title,
+              company: job.company,
+              userEmail: (req.user as any).email || 'user@instajob.com'
+            });
+          } catch (qErr) {
+            console.warn('emailQueue unavailable (Redis offline?), skipping BullMQ:', (qErr as any)?.message);
+          }
 
-          // Send notification via queue
-          await notificationQueue.add('notify', {
-            userId,
-            title: 'Auto-Apply Queued',
-            message: `Your application for ${job.title} at ${job.company} has been queued for auto-apply.`,
-            type: 'auto_apply_queued'
-          });
+          // Send notification via queue (graceful fallback if Redis offline)
+          try {
+            await notificationQueue.add('notify', {
+              userId,
+              title: 'Auto-Apply Queued',
+              message: `Your application for ${job.title} at ${job.company} has been queued for auto-apply.`,
+              type: 'auto_apply_queued'
+            });
+          } catch (nErr) {
+            console.warn('notificationQueue unavailable (Redis offline?), skipping BullMQ:', (nErr as any)?.message);
+          }
 
           // Increment quota
           await incrementApplyCount(userId);
@@ -391,7 +587,7 @@ const start = async () => {
       });
 
       // GET /api/auto-apply/queue - Get user's queue status
-      fastify.get('/api/auto-apply/queue', async (req: any, reply: any) => {
+      fastify.get('/api/auto-apply/queue', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -419,7 +615,7 @@ const start = async () => {
       // ========== NOTIFICATION ENDPOINTS (PROTECTED) ==========
 
       // GET /api/notifications - Get user's notifications
-      fastify.get('/api/notifications', async (req: any, reply: any) => {
+      fastify.get('/api/notifications', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -440,7 +636,7 @@ const start = async () => {
       // ========== REFERRAL ENDPOINTS (PROTECTED) ==========
 
       // GET /api/referral/my-code - Get user's referral code and stats
-      fastify.get('/api/referral/my-code', async (req: any, reply: any) => {
+      fastify.get('/api/referral/my-code', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -469,13 +665,15 @@ const start = async () => {
       });
 
       // POST /api/referral/redeem - Redeem a referral code
-      fastify.post('/api/referral/redeem', async (req: any, reply: any) => {
+      fastify.post('/api/referral/redeem', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-          const { referralCode } = req.body as any;
-          if (!referralCode) return reply.code(400).send({ error: 'Referral code required' });
+          const referralSchema = z.object({ referralCode: z.string().min(1) });
+          const rparsed = referralSchema.safeParse(req.body);
+          if (!rparsed.success) return reply.code(400).send({ error: 'Validation failed', details: rparsed.error.flatten() });
+          const { referralCode } = rparsed.data;
 
           // Check if user already has a referrer
           const currentUser = await prisma.user.findUnique({
@@ -524,7 +722,7 @@ const start = async () => {
       });
 
       // GET /api/referral/leaderboard - Get referral leaderboard
-      fastify.get('/api/referral/leaderboard', async (req: any, reply: any) => {
+      fastify.get('/api/referral/leaderboard', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const { limit = 10 } = req.query as any;
           const topReferrers = await prisma.user.findMany({
@@ -554,7 +752,7 @@ const start = async () => {
       });
 
       // GET /api/referral/rewards - Get available rewards
-      fastify.get('/api/referral/rewards', async (req: any, reply: any) => {
+      fastify.get('/api/referral/rewards', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -589,7 +787,7 @@ const start = async () => {
 // ========== BOOKMARK ENDPOINTS (PROTECTED) ==========
 
 // GET /api/bookmarks - Get all bookmarked jobs for a user
-fastify.get('/api/bookmarks', async (req: any, reply: any) => {
+fastify.get('/api/bookmarks', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
   try {
     const userId = req.user?.sub || req.user?.userId;
     if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -608,7 +806,7 @@ fastify.get('/api/bookmarks', async (req: any, reply: any) => {
 });
 
 // POST /api/jobs/:jobId/bookmark - Bookmark a job
-fastify.post('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
+fastify.post('/api/jobs/:jobId/bookmark', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
   try {
     const userId = req.user?.sub || req.user?.userId;
     if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -636,7 +834,7 @@ fastify.post('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
 });
 
 // DELETE /api/jobs/:jobId/bookmark - Remove a job bookmark
-fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
+fastify.delete('/api/jobs/:jobId/bookmark', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
   try {
     const userId = req.user?.sub || req.user?.userId;
     if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -659,10 +857,48 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
   }
 });
 
+// ========== PHASE 3A: PAYMENT & TELEGRAM CHAT ENDPOINTS ==========
+
+// GET /api/trx - Get user's payment transactions (protected)
+fastify.get('/api/trx', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+  try {
+    const userId = req.user?.sub || req.user?.userId;
+    if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+    const transactions = await prisma.payment.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return transactions;
+  } catch (err) {
+    console.error('Get transactions error:', err);
+    return reply.code(500).send({ error: 'Failed to fetch transactions' });
+  }
+});
+
+// GET /api/chat - Get user's Telegram chat links (protected)
+fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+  try {
+    const userId = req.user?.sub || req.user?.userId;
+    if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+    const chats = await prisma.telegramChat.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return chats;
+  } catch (err) {
+    console.error('Get Telegram chats error:', err);
+    return reply.code(500).send({ error: 'Failed to fetch Telegram chats' });
+  }
+});
+
       // ========== GAMIFICATION ENDPOINTS (PROTECTED) ==========
 
       // GET /api/gamification/profile - Get user's gamification profile
-      fastify.get('/api/gamification/profile', async (req: any, reply: any) => {
+      fastify.get('/api/gamification/profile', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -702,7 +938,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
       });
 
       // POST /api/gamification/check-in - Daily check-in to maintain streak
-      fastify.post('/api/gamification/check-in', async (req: any, reply: any) => {
+      fastify.post('/api/gamification/check-in', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -787,7 +1023,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
       });
 
       // GET /api/gamification/achievements - Get all available achievements
-      fastify.get('/api/gamification/achievements', async (req: any, reply: any) => {
+      fastify.get('/api/gamification/achievements', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
           const userId = req.user?.sub || req.user?.userId;
           if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -902,14 +1138,15 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     // ========== APPLICATIONS ENDPOINTS ==========
     
     // POST /api/applications - Create application
-    fastify.post('/api/applications', async (req: any, reply: any) => {
+    fastify.post('/api/applications', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-        const { jobId, notes } = req.body as any;
-
-        if (!jobId) return reply.code(400).send({ error: 'jobId required' });
+        const appSchema = z.object({ jobId: z.string().min(1), notes: z.string().optional() });
+        const appparsed = appSchema.safeParse(req.body);
+        if (!appparsed.success) return reply.code(400).send({ error: 'Validation failed', details: appparsed.error.flatten() });
+        const { jobId, notes } = appparsed.data;
 
         // Check if job exists
         const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -940,7 +1177,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // GET /api/applications - List user applications
-    fastify.get('/api/applications', async (req: any, reply: any) => {
+    fastify.get('/api/applications', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -973,7 +1210,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     // ========== DASHBOARD STATS ENDPOINT ==========
     
     // GET /api/dashboard/stats - Return dashboard statistics
-    fastify.get('/api/dashboard/stats', async (req: any, reply: any) => {
+    fastify.get('/api/dashboard/stats', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1020,7 +1257,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     // ========== ANALYTICS ENDPOINTS ==========
     
     // GET /api/analytics/overview - Get analytics overview
-    fastify.get('/api/analytics/overview', async (req: any, reply: any) => {
+    fastify.get('/api/analytics/overview', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1056,7 +1293,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // GET /api/analytics/timeline - Get application timeline data
-    fastify.get('/api/analytics/timeline', async (req: any, reply: any) => {
+    fastify.get('/api/analytics/timeline', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1097,7 +1334,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // GET /api/analytics/industries - Get top industries applied
-    fastify.get('/api/analytics/industries', async (req: any, reply: any) => {
+    fastify.get('/api/analytics/industries', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1127,7 +1364,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // GET /api/analytics/time-to-hire - Calculate average time to hire
-    fastify.get('/api/analytics/time-to-hire', async (req: any, reply: any) => {
+    fastify.get('/api/analytics/time-to-hire', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1164,7 +1401,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     // ========== SUBSCRIPTION ENDPOINTS (PROTECTED) ==========
 
     // GET /api/subscription/status - Get current subscription status
-    fastify.get('/api/subscription/status', async (req: any, reply: any) => {
+    fastify.get('/api/subscription/status', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1189,7 +1426,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
             data: {
               userId,
               plan: 'free',
-              features: ['basic_search', 'job_bookmarking', 'application_tracking']
+              features: JSON.stringify(['basic_search', 'job_bookmarking', 'application_tracking'])
             }
           });
         }
@@ -1210,16 +1447,15 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // POST /api/subscription/upgrade - Upgrade to premium (mock payment)
-    fastify.post('/api/subscription/upgrade', async (req: any, reply: any) => {
+    fastify.post('/api/subscription/upgrade', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-        const { plan, months } = req.body as any;
-        
-        if (!plan || !['pro', 'premium'].includes(plan)) {
-          return reply.code(400).send({ error: 'Invalid plan' });
-        }
+        const subSchema = z.object({ plan: z.enum(['pro', 'premium']), months: z.number().int().min(1).max(12).optional() });
+        const sparsed = subSchema.safeParse(req.body);
+        if (!sparsed.success) return reply.code(400).send({ error: 'Validation failed', details: sparsed.error.flatten() });
+        const { plan, months } = sparsed.data;
 
         const monthsNum = months || 1;
 
@@ -1242,7 +1478,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
               userId,
               plan,
               expiresAt,
-              features: ['unlimited_applications', 'ai_matching', 'cover_letter_boost', 'basic_search', 'job_bookmarking', 'application_tracking']
+              features: JSON.stringify(['unlimited_applications', 'ai_matching', 'cover_letter_boost', 'basic_search', 'job_bookmarking', 'application_tracking'])
             }
           });
         } else {
@@ -1251,7 +1487,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
             data: {
               plan,
               expiresAt,
-              features: ['unlimited_applications', 'ai_matching', 'cover_letter_boost', 'basic_search', 'job_bookmarking', 'application_tracking']
+              features: JSON.stringify(['unlimited_applications', 'ai_matching', 'cover_letter_boost', 'basic_search', 'job_bookmarking', 'application_tracking'])
             }
           });
         }
@@ -1270,7 +1506,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // POST /api/subscription/cancel - Cancel premium, revert to free
-    fastify.post('/api/subscription/cancel', async (req: any, reply: any) => {
+    fastify.post('/api/subscription/cancel', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1290,7 +1526,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
             data: {
               plan: 'free',
               expiresAt: null,
-              features: ['basic_search', 'job_bookmarking', 'application_tracking']
+              features: JSON.stringify(['basic_search', 'job_bookmarking', 'application_tracking'])
             }
           });
         } else {
@@ -1298,7 +1534,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
             data: {
               userId,
               plan: 'free',
-              features: ['basic_search', 'job_bookmarking', 'application_tracking']
+              features: JSON.stringify(['basic_search', 'job_bookmarking', 'application_tracking'])
             }
           });
         }
@@ -1318,7 +1554,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     // ========== AI AGENT ENDPOINTS (PROTECTED) ==========
 
     // GET /api/ai/match-score/:jobId - Calculate match score
-    fastify.get('/api/ai/match-score/:jobId', async (req: any, reply: any) => {
+    fastify.get('/api/ai/match-score/:jobId', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1334,7 +1570,7 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // GET /api/ai/recommendations - Get job recommendations
-    fastify.get('/api/ai/recommendations', async (req: any, reply: any) => {
+    fastify.get('/api/ai/recommendations', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
@@ -1360,12 +1596,15 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
     });
 
     // POST /api/ai/tailor-cover-letter - Generate customized cover letter
-    fastify.post('/api/ai/tailor-cover-letter', async (req: any, reply: any) => {
+    fastify.post('/api/ai/tailor-cover-letter', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
 
-        const { jobId } = req.body as any;
+        const coverSchema = z.object({ jobId: z.string().min(1) });
+        const cparsed = coverSchema.safeParse(req.body);
+        if (!cparsed.success) return reply.code(400).send({ error: 'Validation failed', details: cparsed.error.flatten() });
+        const { jobId } = cparsed.data;
         if (!jobId) return reply.code(400).send({ error: 'jobId is required' });
 
         const user = await prisma.user.findUnique({
@@ -1379,13 +1618,13 @@ fastify.delete('/api/jobs/:jobId/bookmark', async (req: any, reply: any) => {
         }
 
         // Generate tailored cover letter using mock/prompt
-        const skillsList = user.profile.skills?.join(', ') || 'Not specified';
+        const skillsList = JSON.parse(user.profile.skills || "[]")?.join(', ') || 'Not specified';
         const coverLetter = `
 Dear Hiring Manager at ${job.company},
 
 I am writing to express my strong interest in the ${job.title} position at ${job.company}. With a background in the field and key skills including ${skillsList}, I am confident in my ability to contribute effectively to your team.
 
-Your job description highlights the need for someone experienced with ${job.requiredSkills?.slice(0, 3).join(', ') || 'relevant industry practices'}. In my previous experience, I have successfully applied similar capabilities to achieve impactful results. For instance, my work in ${user.profile.location || 'software engineering'} aligned closely with your current initiatives.
+Your job description highlights the need for someone experienced with ${JSON.parse(job.requiredSkills || "[]")?.slice(0, 3).join(', ') || 'relevant industry practices'}. In my previous experience, I have successfully applied similar capabilities to achieve impactful results. For instance, my work in ${user.profile.location || 'software engineering'} aligned closely with your current initiatives.
 
 I am enthusiastic about the opportunity to join ${job.company} and would welcome the chance to discuss how my qualifications align with your needs in more detail.
 
@@ -1410,7 +1649,7 @@ ${user.fullName || 'InstaJob Candidate'}
     };
 
     // GET /api/admin/users - List all users
-    fastify.get('/api/admin/users', async (req: any, reply: any) => {
+    fastify.get('/api/admin/users', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId || !isAdmin(userId)) {
@@ -1442,7 +1681,7 @@ ${user.fullName || 'InstaJob Candidate'}
     });
 
     // POST /api/admin/users/:id/suspend - Suspend user account
-    fastify.post('/api/admin/users/:id/suspend', async (req: any, reply: any) => {
+    fastify.post('/api/admin/users/:id/suspend', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId || !isAdmin(userId)) {
@@ -1450,7 +1689,10 @@ ${user.fullName || 'InstaJob Candidate'}
         }
 
         const { id } = req.params as any;
-        const { reason } = req.body as any;
+        const suspendSchema = z.object({ reason: z.string().optional() });
+        const susparsed = suspendSchema.safeParse(req.body);
+        if (!susparsed.success) return reply.code(400).send({ error: 'Validation failed', details: susparsed.error.flatten() });
+        const { reason } = susparsed.data;
 
         const user = await prisma.user.findUnique({ where: { id } });
         if (!user) return reply.code(404).send({ error: 'User not found' });
@@ -1477,7 +1719,7 @@ ${user.fullName || 'InstaJob Candidate'}
     });
 
     // GET /api/admin/subscriptions - Subscription analytics
-    fastify.get('/api/admin/subscriptions', async (req: any, reply: any) => {
+    fastify.get('/api/admin/subscriptions', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId || !isAdmin(userId)) {
@@ -1505,7 +1747,7 @@ ${user.fullName || 'InstaJob Candidate'}
     });
 
     // GET /api/admin/health - System health monitoring
-    fastify.get('/api/admin/health', async (req: any, reply: any) => {
+    fastify.get('/api/admin/health', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId || !isAdmin(userId)) {
