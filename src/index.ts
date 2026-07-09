@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
+import bcrypt from 'bcrypt';
 import { authRoutes } from './auth';
 import { emailQueue } from './services/emailQueue';
 import { notificationQueue } from './services/notificationQueue';
@@ -210,6 +211,105 @@ const start = async () => {
           }
           console.error('Update profile error:', err);
           return reply.code(500).send({ error: 'Failed to update profile' });
+        }
+      });
+
+      // PUT /api/user/update-name
+      fastify.put('/api/user/update-name', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        const updateNameSchema = z.object({
+          fullName: z.string().min(1, 'Full name is required').max(100),
+        });
+
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const { fullName } = updateNameSchema.parse(req.body);
+
+          const user = await prisma.user.update({
+            where: { id: userId },
+            data: { fullName },
+            select: { id: true, email: true, fullName: true },
+          });
+
+          return reply.code(200).send({
+            message: 'Name updated successfully',
+            user,
+          });
+        } catch (err: any) {
+          if (err instanceof z.ZodError) {
+            return reply.code(400).send({ error: 'Invalid input', details: err.issues });
+          }
+          console.error('Update name error:', err);
+          return reply.code(500).send({ error: 'Failed to update name' });
+        }
+      });
+
+      // POST /api/user/change-password
+      fastify.post('/api/user/change-password', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        const changePasswordSchema = z.object({
+          currentPassword: z.string().min(1, 'Current password is required'),
+          newPassword: z.string().min(6, 'New password must be at least 6 characters').max(72),
+        });
+
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+
+          const user = await prisma.user.findUnique({ where: { id: userId } });
+          if (!user) return reply.code(404).send({ error: 'User not found' });
+
+          const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+          if (!valid) return reply.code(400).send({ error: 'Current password is incorrect' });
+
+          const newHash = await bcrypt.hash(newPassword, 10);
+          await prisma.user.update({
+            where: { id: userId },
+            data: { passwordHash: newHash },
+          });
+
+          return reply.code(200).send({
+            message: 'Password changed successfully',
+          });
+        } catch (err: any) {
+          if (err instanceof z.ZodError) {
+            return reply.code(400).send({ error: 'Invalid input', details: err.issues });
+          }
+          console.error('Change password error:', err);
+          return reply.code(500).send({ error: 'Failed to change password' });
+        }
+      });
+
+      // POST /api/user/upload-profile-picture
+      fastify.post('/api/user/upload-profile-picture', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        const uploadPictureSchema = z.object({
+          profilePictureUrl: z.string().url('Must be a valid URL'),
+        });
+
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const { profilePictureUrl } = uploadPictureSchema.parse(req.body);
+
+          const profile = await prisma.userProfile.upsert({
+            where: { userId },
+            update: { profilePicture: profilePictureUrl },
+            create: { userId, profilePicture: profilePictureUrl },
+          });
+
+          return reply.code(200).send({
+            message: 'Profile picture updated successfully',
+            profilePicture: profile.profilePicture,
+          });
+        } catch (err: any) {
+          if (err instanceof z.ZodError) {
+            return reply.code(400).send({ error: 'Invalid input', details: err.issues });
+          }
+          console.error('Upload profile picture error:', err);
+          return reply.code(500).send({ error: 'Failed to upload profile picture' });
         }
       });
 

@@ -68,6 +68,7 @@ model UserProfile {
   resumeUrl  String?
   phone      String?
   jobPreferences String?  // JSON string for preferences
+  profilePicture String?  // URL to uploaded profile picture
 }
 
 model Job {
