@@ -1,5 +1,5 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -48,6 +48,9 @@ model User {
   bookmarks      JobBookmark[]
   botConfigs     BotConfig[]
   botStatus      BotStatus[]
+  payments       Payment[]
+  telegramChats  TelegramChat[]
+  autoApplyRuns  AutoApplyRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -63,6 +66,7 @@ model UserProfile {
   education  String?
   location   String?
   resumeUrl  String?
+  phone      String?
   jobPreferences String?  // JSON string for preferences
 }
 
@@ -76,6 +80,7 @@ model Job {
   salaryMin   Int?
   salaryMax   Int?
   remote      Boolean   @default(false)
+  tags        String?   @default("[]")
   postedAt    DateTime  @default(now())
   postedDate  DateTime  @default(now())
   expiresAt   DateTime?
@@ -245,6 +250,59 @@ model BotStatus {
   errorCount      Int      @default(0)
   metricsJson     String   @default("{}")
   lastUpdate      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// PHASE 3A: PAYMENT & TELEGRAM CHAT MODELS
+// ============================================
+
+model Payment {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan           String   @default("free") // free, pro, enterprise
+  gatewayTransId String?
+  status         String   @default("pending") // pending, success, failed, refunded
+  amount         Int?     // in IDR
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TelegramChat {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId          String
+  isActive        Boolean   @default(true)
+  lastMessageSent DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([userId, chatId])
+  @@index([userId])
+  @@index([isActive])
+}
+
+// ============================================
+// AUTO-APPLY RUN TRACKING
+// ============================================
+
+model AutoApplyRun {
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status              String    @default("idle") // idle, running, paused, stopped
+  snapshotPreference  String?   // JSON snapshot of UserPreferences at Start time
+  startedAt           DateTime?
+  stoppedAt           DateTime?
+  pausedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([userId])
   @@index([status])
