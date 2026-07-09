@@ -313,6 +313,156 @@ const start = async () => {
         }
       });
 
+      // ========== BOT ORCHESTRATION ENDPOINTS (PROTECTED) ==========
+
+      // POST /api/bot/start
+      fastify.post('/api/bot/start', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const existingRun = await prisma.autoApplyRun.findFirst({
+            where: { userId, status: { in: ['running', 'paused'] } }
+          });
+          if (existingRun) {
+            return reply.code(409).send({ error: 'Bot already running or paused', runId: existingRun.id, status: existingRun.status });
+          }
+
+          const profile = await prisma.userProfile.findUnique({ where: { userId } });
+          const prefs = profile?.jobPreferences ? JSON.parse(profile.jobPreferences) : {};
+
+          const run = await prisma.autoApplyRun.create({
+            data: { userId, status: 'running', snapshotPreference: JSON.stringify(prefs), startedAt: new Date() }
+          });
+
+          const jobs = await prisma.job.findMany({
+            where: { ...(prefs.remote === true && { remote: true }) },
+            take: 50,
+            orderBy: { postedAt: 'desc' }
+          });
+
+          const queueItems = await Promise.all(
+            jobs.map(job => prisma.autoApplyQueue.upsert({
+              where: { userId_jobId: { userId, jobId: job.id } },
+              create: { userId, jobId: job.id, status: 'pending' },
+              update: {}
+            }))
+          );
+
+          await prisma.botStatus.upsert({
+            where: { processId: `run_${run.id}` },
+            create: { userId, processId: `run_${run.id}`, botType: 'fleet', status: 'running', jobsProcessed: 0, applicationsSent: 0 },
+            update: { status: 'running' }
+          });
+
+          return reply.code(201).send({ message: 'Bot started successfully', runId: run.id, status: run.status, jobsQueued: queueItems.length, startedAt: run.startedAt });
+        } catch (err: any) {
+          console.error('Bot start error:', err);
+          return reply.code(500).send({ error: 'Failed to start bot' });
+        }
+      });
+
+      // POST /api/bot/pause
+      fastify.post('/api/bot/pause', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const run = await prisma.autoApplyRun.findFirst({ where: { userId, status: 'running' } });
+          if (!run) return reply.code(404).send({ error: 'No running bot found' });
+
+          await prisma.autoApplyRun.update({ where: { id: run.id }, data: { status: 'paused', pausedAt: new Date() } });
+          await prisma.botStatus.updateMany({ where: { processId: `run_${run.id}` }, data: { status: 'paused' } });
+
+          return reply.send({ message: 'Bot paused', runId: run.id });
+        } catch (err: any) {
+          console.error('Bot pause error:', err);
+          return reply.code(500).send({ error: 'Failed to pause bot' });
+        }
+      });
+
+      // POST /api/bot/resume
+      fastify.post('/api/bot/resume', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const run = await prisma.autoApplyRun.findFirst({ where: { userId, status: 'paused' } });
+          if (!run) return reply.code(404).send({ error: 'No paused bot found' });
+
+          await prisma.autoApplyRun.update({ where: { id: run.id }, data: { status: 'running', pausedAt: null } });
+          await prisma.botStatus.updateMany({ where: { processId: `run_${run.id}` }, data: { status: 'running' } });
+
+          return reply.send({ message: 'Bot resumed', runId: run.id });
+        } catch (err: any) {
+          console.error('Bot resume error:', err);
+          return reply.code(500).send({ error: 'Failed to resume bot' });
+        }
+      });
+
+      // POST /api/bot/stop
+      fastify.post('/api/bot/stop', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const run = await prisma.autoApplyRun.findFirst({ where: { userId, status: { in: ['running', 'paused'] } } });
+          if (!run) return reply.code(404).send({ error: 'No active bot found' });
+
+          await prisma.autoApplyRun.update({ where: { id: run.id }, data: { status: 'stopped', stoppedAt: new Date() } });
+          await prisma.botStatus.updateMany({ where: { processId: `run_${run.id}` }, data: { status: 'stopped' } });
+          await prisma.autoApplyQueue.updateMany({ where: { userId, status: 'pending' }, data: { status: 'failed', errorMessage: 'Bot stopped by user' } });
+
+          return reply.send({ message: 'Bot stopped', runId: run.id });
+        } catch (err: any) {
+          console.error('Bot stop error:', err);
+          return reply.code(500).send({ error: 'Failed to stop bot' });
+        }
+      });
+
+      // GET /api/bot/status
+      fastify.get('/api/bot/status', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const run = await prisma.autoApplyRun.findFirst({
+            where: { userId },
+            orderBy: { createdAt: 'desc' }
+          });
+
+          if (!run) {
+            return reply.send({ status: 'idle', runId: null, metrics: { pending: 0, sent: 0, failed: 0 } });
+          }
+
+          const botStatus = await prisma.botStatus.findUnique({ where: { processId: `run_${run.id}` } });
+
+          const [pending, sent, failed] = await Promise.all([
+            prisma.autoApplyQueue.count({ where: { userId, status: 'pending' } }),
+            prisma.autoApplyQueue.count({ where: { userId, status: 'sent' } }),
+            prisma.autoApplyQueue.count({ where: { userId, status: 'failed' } })
+          ]);
+
+          return reply.send({
+            status: run.status,
+            runId: run.id,
+            startedAt: run.startedAt,
+            pausedAt: run.pausedAt,
+            stoppedAt: run.stoppedAt,
+            metrics: {
+              pending,
+              sent,
+              failed,
+              jobsProcessed: botStatus?.jobsProcessed ?? 0,
+              applicationsSent: botStatus?.applicationsSent ?? 0
+            }
+          });
+        } catch (err: any) {
+          console.error('Bot status error:', err);
+          return reply.code(500).send({ error: 'Failed to get bot status' });
+        }
+      });
+
       // ========== USER PREFERENCES ENDPOINTS (PROTECTED) ==========
 
       // GET /api/user/preferences
@@ -372,89 +522,6 @@ const start = async () => {
           }
           console.error('Update preferences error:', err);
           return reply.code(500).send({ error: 'Failed to update preferences' });
-        }
-      });
-
-      // ========== BOT STATUS ENDPOINTS (PROTECTED) ==========
-
-      // GET /api/bot/status - Get current bot status for user
-      fastify.get('/api/bot/status', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
-        try {
-          const userId = req.user?.sub || req.user?.userId;
-          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-
-          const botStatus = await prisma.botStatus.findFirst({
-            where: { userId, botType: 'fleet' },
-            orderBy: { lastUpdate: 'desc' }
-          });
-
-          return reply.send({
-            status: botStatus?.status ?? 'stopped',
-            uptimeSeconds: botStatus?.uptimeSeconds ?? 0,
-            jobsProcessed: botStatus?.jobsProcessed ?? 0,
-            applicationsSent: botStatus?.applicationsSent ?? 0,
-            errorCount: botStatus?.errorCount ?? 0,
-            lastUpdate: botStatus?.lastUpdate ?? null,
-          });
-        } catch (err) {
-          console.error('Get bot status error:', err);
-          return reply.code(500).send({ error: 'Failed to fetch bot status' });
-        }
-      });
-
-      // POST /api/bot/start - Start auto-apply bot
-      fastify.post('/api/bot/start', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
-        try {
-          const userId = req.user?.sub || req.user?.userId;
-          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-
-          const processId = `fleet-${userId}-${Date.now()}`;
-          const botStatus = await prisma.botStatus.upsert({
-            where: { processId: `fleet-${userId}` },
-            update: { status: 'running', processId, lastUpdate: new Date() },
-            create: { userId, processId, botType: 'fleet', status: 'running' }
-          });
-
-          return reply.send({ message: 'Bot started', status: botStatus.status });
-        } catch (err) {
-          console.error('Start bot error:', err);
-          return reply.code(500).send({ error: 'Failed to start bot' });
-        }
-      });
-
-      // POST /api/bot/stop - Stop auto-apply bot
-      fastify.post('/api/bot/stop', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
-        try {
-          const userId = req.user?.sub || req.user?.userId;
-          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-
-          await prisma.botStatus.updateMany({
-            where: { userId, botType: 'fleet' },
-            data: { status: 'stopped', lastUpdate: new Date() }
-          });
-
-          return reply.send({ message: 'Bot stopped', status: 'stopped' });
-        } catch (err) {
-          console.error('Stop bot error:', err);
-          return reply.code(500).send({ error: 'Failed to stop bot' });
-        }
-      });
-
-      // POST /api/bot/pause - Pause auto-apply bot
-      fastify.post('/api/bot/pause', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
-        try {
-          const userId = req.user?.sub || req.user?.userId;
-          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-
-          await prisma.botStatus.updateMany({
-            where: { userId, botType: 'fleet', status: 'running' },
-            data: { status: 'paused', lastUpdate: new Date() }
-          });
-
-          return reply.send({ message: 'Bot paused', status: 'paused' });
-        } catch (err) {
-          console.error('Pause bot error:', err);
-          return reply.code(500).send({ error: 'Failed to pause bot' });
         }
       });
 
