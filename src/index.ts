@@ -14,6 +14,8 @@ import { canUserApply, incrementApplyCount, getUserQuota } from './services/rate
 import { calculateMatchScore, getJobRecommendations } from './services/aiService';
 import { registerRateLimit, authRateLimit, inputSanitizeHook, authValidationHook, securityHeadersHook } from './middleware/security';
 import webhookRoutes from './routes/webhookRoutes';
+import { integrationsRoutes } from './routes/integrations';
+import { botControlRoutes } from './routes/botControl';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
@@ -91,8 +93,10 @@ const start = async () => {
 
     // Auth Routes
     await fastify.register(authRoutes);
+    await fastify.register(integrationsRoutes);
+    await fastify.register(botControlRoutes);
 
-    // Start Telegram Bot
+    // === HEALTH CHECK ===
     await startBot();
 
     // Start Background Job Workers

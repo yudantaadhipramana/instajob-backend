@@ -51,6 +51,14 @@ model User {
   payments       Payment[]
   telegramChats  TelegramChat[]
   autoApplyRuns  AutoApplyRun[]
+  
+  // Phase 3A Corrected Relations
+  telegramIntegration TelegramIntegration?
+  gmailIntegration    GmailIntegration?
+  emailNotifications  EmailNotification[]
+  botProfile          BotProfile?
+  jobBatches          JobBatch[]
+  botAnalytics        BotAnalytics[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -307,4 +315,97 @@ model AutoApplyRun {
 
   @@index([userId])
   @@index([status])
+}
+
+// ============================================
+// PHASE 3A CORRECTED: INTEGRATION & NOTIFICATION
+// ============================================
+
+model TelegramIntegration {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramChatId    String
+  isConnected       Boolean  @default(false)
+  notificationTypes String   @default("[]") // JSON string of preferred notification types
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model GmailIntegration {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gmailEmail    String
+  refreshToken  String?  // Needs encryption in prod
+  isConnected   Boolean  @default(false)
+  lastSyncAt    DateTime?
+  syncFrequency String   @default("HOURLY")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model EmailNotification {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromCompany        String?
+  fromEmail          String
+  subject            String
+  preview            String?
+  fullContent        String?
+  type               String   @default("OTHER") // REPLY, INTERVIEW, REJECT, OTHER
+  notifiedToTelegram Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+}
+
+// ============================================
+// PHASE 3A CORRECTED: SCOUT ENGINE & BOT CONFIG
+// ============================================
+
+model BotProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botName            String   @default("My Job Scout")
+  status             String   @default("IDLE") // ACTIVE, PAUSED, IDLE
+  lastRunAt          DateTime?
+  totalApplied       Int      @default(0)
+  totalSuccessful    Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model JobBatch {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobIds       String   @default("[]") // JSON array of job IDs
+  status       String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  successCount Int      @default(0)
+  failureCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model BotAnalytics {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date              DateTime @default(now())
+  appliedCount      Int      @default(0)
+  successCount      Int      @default(0)
+  failureCount      Int      @default(0)
+  successRate       Float    @default(0.0)
+  averageTimePerJob Int      @default(0) // milliseconds
+
+  @@unique([userId, date])
+  @@index([userId])
 }
