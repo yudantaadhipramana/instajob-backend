@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
-import { getGoogleAuthUrl, handleGmailCallback, syncGmailInbox, disconnectGmail } from '../services/gmailService';
+import { getGoogleAuthUrl, handleGmailCallback, syncGmailInbox, disconnectGmail, sendEmailViaGmail, getGmailStatus } from '../services/gmailService';
 
 const prisma = new PrismaClient();
 
@@ -111,6 +111,38 @@ export async function integrationsRoutes(fastify: any) {
         const userId = req.user.sub || req.user.userId;
         await disconnectGmail(userId);
         reply.send({ success: true, message: 'Gmail disconnected' });
+      } catch (error: any) {
+        reply.status(500).send({ error: error.message });
+      }
+    }
+  );
+
+  // GET /api/integrations/gmail/status
+  fastify.get('/api/integrations/gmail/status',
+    { preHandler: [(fastify as any).authenticate] },
+    async (req: any, reply: any) => {
+      try {
+        const userId = req.user.sub || req.user.userId;
+        const status = await getGmailStatus(userId);
+        reply.send(status);
+      } catch (error: any) {
+        reply.status(500).send({ error: error.message });
+      }
+    }
+  );
+
+  // POST /api/integrations/gmail/send
+  fastify.post('/api/integrations/gmail/send',
+    { preHandler: [(fastify as any).authenticate] },
+    async (req: any, reply: any) => {
+      try {
+        const userId = req.user.sub || req.user.userId;
+        const { to, subject, body } = req.body as { to: string; subject: string; body: string };
+        if (!to || !subject || !body) {
+          return reply.status(400).send({ error: 'to, subject, body required' });
+        }
+        const result = await sendEmailViaGmail(userId, to, subject, body);
+        reply.send({ success: true, messageId: result.messageId });
       } catch (error: any) {
         reply.status(500).send({ error: error.message });
       }

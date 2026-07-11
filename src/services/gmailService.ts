@@ -15,6 +15,7 @@ const oauth2Client = new google.auth.OAuth2(
 export function getGoogleAuthUrl(userId: string): string {
   const scopes = [
     'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/userinfo.email'
   ];
 
@@ -182,4 +183,65 @@ export async function disconnectGmail(userId: string) {
       refreshToken: null
     }
   });
+}
+
+/**
+ * Send email via user's Gmail (Phase N: auto-send)
+ */
+export async function sendEmailViaGmail(
+  userId: string,
+  to: string,
+  subject: string,
+  body: string
+): Promise<{ messageId: string }> {
+  const integration = await prisma.gmailIntegration.findUnique({ where: { userId } });
+
+  if (!integration || !integration.isConnected || !integration.refreshToken) {
+    throw new Error('Gmail not connected. Please reconnect via /api/integrations/gmail/auth-url');
+  }
+
+  const client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/integrations/gmail/callback'
+  );
+  client.setCredentials({ refresh_token: integration.refreshToken });
+
+  const gmail = google.gmail({ version: 'v1', auth: client });
+
+  // Build RFC 2822 raw message
+  const from = integration.gmailEmail;
+  const messageParts = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    body
+  ];
+  const raw = Buffer.from(messageParts.join('\r\n'))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const result = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw }
+  });
+
+  return { messageId: result.data.id! };
+}
+
+/**
+ * Get Gmail connection status for a user
+ */
+export async function getGmailStatus(userId: string) {
+  const integration = await prisma.gmailIntegration.findUnique({ where: { userId } });
+  return {
+    isConnected: integration?.isConnected ?? false,
+    email: integration?.isConnected ? integration.gmailEmail : null,
+    lastSyncAt: integration?.lastSyncAt ?? null
+  };
 }
