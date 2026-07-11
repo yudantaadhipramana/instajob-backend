@@ -65,6 +65,6 @@ notificationWorker.on('completed', (job: any, result: any) => {
   console.log(`Notification job ${job.id} completed. Sent to Telegram: ${result.sentToTelegram}`);
 });
 
-notificationWorker.on('failed', (job, err) => {
+notificationWorker?.on('failed', (job: any, err: any) => {
   console.error(`Notification job ${job?.id} failed:`, err.message);
 });

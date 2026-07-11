@@ -71,6 +71,6 @@ jobScrapingWorker.on('completed', (job: any, result: any) => {
   console.log(`Job scraping job ${job.id} completed. Found ${result.count} new jobs.`);
 });
 
-jobScrapingWorker.on('failed', (job, err) => {
+jobScrapingWorker?.on('failed', (job: any, err: any) => {
   console.error(`Job scraping job ${job?.id} failed:`, err.message);
 });
