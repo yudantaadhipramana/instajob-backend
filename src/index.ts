@@ -16,6 +16,7 @@ import { registerRateLimit, authRateLimit, inputSanitizeHook, authValidationHook
 import webhookRoutes from './routes/webhookRoutes';
 import { integrationsRoutes } from './routes/integrations';
 import { botControlRoutes } from './routes/botControl';
+import { registerAffiliateRoutes } from './routes/affiliateRoutes';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
@@ -95,6 +96,7 @@ const start = async () => {
     await fastify.register(authRoutes);
     await fastify.register(integrationsRoutes);
     await fastify.register(botControlRoutes);
+    await registerAffiliateRoutes(fastify);
 
     // === HEALTH CHECK ===
     await startBot();

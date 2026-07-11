@@ -60,8 +60,43 @@ model User {
   jobBatches          JobBatch[]
   botAnalytics        BotAnalytics[]
 
+  // Phase K: Affiliate Dashboard Relations
+  affiliateTier       Int      @default(1) // 1:20% 2:25% 3:28% 4:30%
+  totalEarnings       Float    @default(0)
+  pendingPayout       Float    @default(0)
+  referralStat        ReferralStat?
+  payouts             Payout[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// === PHASE K: AFFILIATE DASHBOARD ===
+model ReferralStat {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+  totalClicks      Int      @default(0)
+  totalSignups     Int      @default(0)
+  totalConversions Int      @default(0)
+  conversionRate   Float    @default(0)
+  updatedAt        DateTime @updatedAt
+}
+
+model Payout {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  amount    Float
+  status    String    @default("PENDING") // PENDING, PROCESSING, PAID, FAILED
+  method    String    // BANK_TRANSFER, PAYPAL, EWALLET
+  details   String?   // JSON string, e.g. bank account info
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }
 
 model UserProfile {
