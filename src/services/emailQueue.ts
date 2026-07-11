@@ -33,7 +33,8 @@ const emailTransporter = nodemailer.createTransport({
 });
 
 // Worker: Process email queue jobs
-export const emailWorker = new Worker(
+export const emailWorker = workersEnabled && connection
+  ? new Worker(
   'auto-apply-emails',
   async (job) => {
     try {
@@ -100,14 +101,14 @@ export const emailWorker = new Worker(
     }
   },
   { connection: connection as any, concurrency: 3 }
-);
+) : null as any;
 
 // Event handlers
-emailWorker.on('completed', (job) => {
+emailWorker?.on('completed', (job: any) => {
   console.log(`Job ${job.id} completed successfully`);
 });
 
-emailWorker.on('failed', async (job, err) => {
+emailWorker?.on('failed', async (job: any, err: any) => {
   console.error(`Job ${job?.id} failed:`, err?.message);
   if (job) {
     const { userId, jobId } = job.data;
@@ -238,6 +239,6 @@ ${userName}`;
 // Cleanup function
 export async function closeEmailQueue() {
   await emailQueue.close();
-  await emailWorker.close();
+  await emailWorker?.close();
   connection?.disconnect();
 }
