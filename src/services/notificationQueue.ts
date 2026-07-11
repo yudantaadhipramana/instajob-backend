@@ -5,15 +5,19 @@ import { sendTelegramNotification } from './telegramBot';
 
 const prisma = new PrismaClient();
 
-const connection = new IORedis({
+const workersEnabled = process.env.ENABLE_WORKERS !== 'false';
+const connection = workersEnabled ? new IORedis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   maxRetriesPerRequest: null,
   enableOfflineQueue: false,
-});
-connection.on('error', () => {}); // ponytail: silence when Redis is down; restore for production monitoring
+  lazyConnect: true,
+}) : null;
+if (connection) connection.on('error', () => {});
 
-export const notificationQueue = new Queue('user-notifications', { connection: connection as any });
+export const notificationQueue = workersEnabled && connection
+  ? new Queue('user-notifications', { connection: connection as any })
+  : null as any;
 
 export const notificationWorker = new Worker(
   'user-notifications',

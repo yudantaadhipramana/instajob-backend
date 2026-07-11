@@ -1,22 +1,25 @@
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
-import nodemailer from 'nodemailer';
+import * as nodemailer from 'nodemailer';
 import { sendTelegramNotification } from './telegramBot';
 
 const prisma = new PrismaClient();
 
-// Redis connection for BullMQ
-const connection = new IORedis({
+// Redis connection for BullMQ — skip if ENABLE_WORKERS=false
+const workersEnabled = process.env.ENABLE_WORKERS !== 'false';
+const connection = workersEnabled ? new IORedis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   maxRetriesPerRequest: null,
   enableOfflineQueue: false,
-});
-connection.on('error', () => {}); // ponytail: silence when Redis is down; restore for production monitoring
+  lazyConnect: true,
+}) : null;
+if (connection) connection.on('error', () => {});
 
-// Email queue
-export const emailQueue = new Queue('auto-apply-emails', { connection: connection as any });
+export const emailQueue = workersEnabled && connection
+  ? new Queue('auto-apply-emails', { connection: connection as any })
+  : null as any;
 
 // Email transporter (mock - replace with real SMTP in production)
 const emailTransporter = nodemailer.createTransport({
@@ -236,5 +239,5 @@ ${userName}`;
 export async function closeEmailQueue() {
   await emailQueue.close();
   await emailWorker.close();
-  connection.disconnect();
+  connection?.disconnect();
 }
