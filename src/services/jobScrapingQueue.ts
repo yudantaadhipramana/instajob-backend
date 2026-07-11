@@ -18,7 +18,8 @@ export const jobScrapingQueue = workersEnabled && connection
   ? new Queue('job-scraping', { connection: connection as any })
   : null as any;
 
-export const jobScrapingWorker = new Worker(
+export const jobScrapingWorker = workersEnabled && connection
+  ? new Worker(
   'job-scraping',
   async (job) => {
     const { source, query } = job.data;
@@ -63,9 +64,10 @@ export const jobScrapingWorker = new Worker(
     }
   },
   { connection: connection as any, concurrency: 1 }
-);
+)
+  : null as any;
 
-jobScrapingWorker.on('completed', (job, result) => {
+jobScrapingWorker.on('completed', (job: any, result: any) => {
   console.log(`Job scraping job ${job.id} completed. Found ${result.count} new jobs.`);
 });
 

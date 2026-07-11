@@ -19,7 +19,8 @@ export const notificationQueue = workersEnabled && connection
   ? new Queue('user-notifications', { connection: connection as any })
   : null as any;
 
-export const notificationWorker = new Worker(
+export const notificationWorker = workersEnabled && connection
+  ? new Worker(
   'user-notifications',
   async (job) => {
     const { userId, title, message, type } = job.data;
@@ -57,9 +58,10 @@ export const notificationWorker = new Worker(
     }
   },
   { connection: connection as any, concurrency: 5 }
-);
+)
+  : null as any;
 
-notificationWorker.on('completed', (job, result) => {
+notificationWorker.on('completed', (job: any, result: any) => {
   console.log(`Notification job ${job.id} completed. Sent to Telegram: ${result.sentToTelegram}`);
 });
 
