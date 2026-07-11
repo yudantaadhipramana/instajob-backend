@@ -67,7 +67,7 @@ export const jobScrapingWorker = workersEnabled && connection
 )
   : null as any;
 
-jobScrapingWorker.on('completed', (job: any, result: any) => {
+jobScrapingWorker?.on('completed', (job: any, result: any) => {
   console.log(`Job scraping job ${job.id} completed. Found ${result.count} new jobs.`);
 });
 

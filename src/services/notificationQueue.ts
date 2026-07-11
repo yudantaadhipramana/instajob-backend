@@ -61,7 +61,7 @@ export const notificationWorker = workersEnabled && connection
 )
   : null as any;
 
-notificationWorker.on('completed', (job: any, result: any) => {
+notificationWorker?.on('completed', (job: any, result: any) => {
   console.log(`Notification job ${job.id} completed. Sent to Telegram: ${result.sentToTelegram}`);
 });
 
