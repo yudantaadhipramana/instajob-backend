@@ -2,6 +2,7 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
@@ -17,6 +18,7 @@ import webhookRoutes from './routes/webhookRoutes';
 import { integrationsRoutes } from './routes/integrations';
 import { botControlRoutes } from './routes/botControl';
 import { registerAffiliateRoutes } from './routes/affiliateRoutes';
+import { resumeRoutes } from './routes/resume';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
@@ -32,6 +34,13 @@ const start = async () => {
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
       credentials: true,
+    });
+
+    // Register multipart for file uploads
+    await fastify.register(multipart, {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max
+      },
     });
 
     // Security headers on every response
@@ -97,6 +106,7 @@ const start = async () => {
     await fastify.register(integrationsRoutes);
     await fastify.register(botControlRoutes);
     await registerAffiliateRoutes(fastify);
+    await resumeRoutes(fastify);
 
     // === HEALTH CHECK ===
     await startBot();
