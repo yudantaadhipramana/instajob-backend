@@ -1,12 +1,10 @@
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
-import * as nodemailer from 'nodemailer';
 import { sendTelegramNotification } from './telegramBot';
+import { openai } from './openaiClient';
 
 const prisma = new PrismaClient();
-
-// Redis connection for BullMQ — skip if ENABLE_WORKERS=false
 const workersEnabled = process.env.ENABLE_WORKERS !== 'false';
 const connection = workersEnabled ? new IORedis({
   host: process.env.REDIS_HOST || 'localhost',
@@ -21,16 +19,26 @@ export const emailQueue = workersEnabled && connection
   ? new Queue('auto-apply-emails', { connection: connection as any })
   : null as any;
 
-// Email transporter (mock - replace with real SMTP in production)
-const emailTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+// Send via Resend HTTP API (no SMTP firewall issues)
+async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM || 'InstaJob <onboarding@resend.dev>',
+      to,
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend error ${res.status}: ${err}`);
+  }
+}
 
 // Worker: Process email queue jobs
 export const emailWorker = workersEnabled && connection
@@ -67,13 +75,12 @@ export const emailWorker = workersEnabled && connection
         emailTemplate
       );
 
-      // Send email (mock - in production, send to company)
-      await emailTransporter.sendMail({
-        from: process.env.SMTP_FROM || 'noreply@instajob.com',
-        to: process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
-        subject: `Application for ${jobTitle} at ${company}`,
-        html: emailContent,
-      });
+      // Send via Resend
+      await sendEmail(
+        process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
+        `Application for ${jobTitle} at ${company}`,
+        emailContent,
+      );
 
       // Update queue status
       await prisma.autoApplyQueue.update({
@@ -154,13 +161,12 @@ export async function processEmailQueueSync(userId: string, jobId: string) {
 
     console.log(`\n=== GENERATED EMAIL CONTENT [${userId}/${jobId}] ===\n${emailContent}\n=========================================\n`);
 
-    // Send email (mock)
-    await emailTransporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@instajob.com',
-      to: process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
-      subject: `Application for ${application.job.title} at ${application.job.company}`,
-      html: emailContent,
-    });
+    // Send via Resend
+    await sendEmail(
+      process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
+      `Application for ${application.job.title} at ${application.job.company}`,
+      emailContent,
+    );
 
     // Update status to sent
     await prisma.autoApplyQueue.update({
@@ -178,7 +184,7 @@ export async function processEmailQueueSync(userId: string, jobId: string) {
   }
 }
 
-// Helper: Generate AI-powered personalized email (mock OpenAI for Phase I dev)
+// Helper: Generate AI-powered personalized application email
 async function generateAIEmail(
   userName: string,
   jobTitle: string,
@@ -186,54 +192,48 @@ async function generateAIEmail(
   emailTemplate: string,
   recruiterName: string = 'Hiring Manager'
 ): Promise<string> {
-  // If user has custom template, use it with placeholder replacement
+  // Custom template: substitute placeholders, wrap HTML
   if (emailTemplate?.trim()) {
-    let content = emailTemplate
+    const content = emailTemplate
       .replace(/{recruiter}/g, recruiterName)
       .replace(/{role}/g, jobTitle)
       .replace(/{company}/g, company);
-    
-    // Wrap in HTML email format
-    return `
-      <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <p>${content.replace(/\n/g, '</p><p>')}</p>
-          <p>Best regards,<br/><strong>${userName}</strong></p>
-          <hr/>
-          <p style="font-size: 12px; color: #666;">
-            This is an automated application from InstaJob. 
-            Sent on ${new Date().toLocaleDateString()}
-          </p>
-        </body>
-      </html>
-    `;
+    return `<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
+      <p>${content.replace(/\n/g, '</p><p>')}</p>
+      <p>Best regards,<br/><strong>${userName}</strong></p>
+      <hr/><p style="font-size:12px;color:#666">Sent via InstaJob on ${new Date().toLocaleDateString()}</p>
+    </body></html>`;
   }
 
-  // Mock AI generation for Phase I development
-  // In production: call openai.chat.completions.create() with proper prompt
-  console.log(`[MOCK AI] Generating personalized email for ${jobTitle} at ${company}`);
-  
-  const mockContent = `Dear ${recruiterName},
+  // AI-generated email via OpenAI
+  try {
+    const prompt = `Write a professional job application email from ${userName} applying for ${jobTitle} at ${company}. 
+Address it to ${recruiterName}. Keep it concise (3 short paragraphs), professional, and genuine. 
+Do not include subject line. Plain text only, no markdown.`;
 
-I am writing to express my genuine interest in the ${jobTitle} position at ${company}. With my background and proven expertise, I am confident I can contribute significantly to your team.
+    const completion = await openai.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 400,
+      temperature: 0.7,
+    });
 
-I look forward to discussing how my skills align with your requirements.
-
-Best regards,
-${userName}`;
-
-  return `
-    <html>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <p>${mockContent.replace(/\n/g, '</p><p>')}</p>
-        <hr/>
-        <p style="font-size: 12px; color: #666;">
-          This is an automated application from InstaJob (AI-personalized). 
-          Sent on ${new Date().toLocaleDateString()}
-        </p>
-      </body>
-    </html>
-  `;
+    const text = completion.choices[0]?.message?.content?.trim() || '';
+    return `<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
+      <p>${text.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>
+      <hr/><p style="font-size:12px;color:#666">AI-generated via InstaJob on ${new Date().toLocaleDateString()}</p>
+    </body></html>`;
+  } catch (err: any) {
+    console.warn('[EmailQueue] OpenAI failed, using fallback:', err.message);
+    // Fallback: basic template
+    return `<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
+      <p>Dear ${recruiterName},</p>
+      <p>I am writing to express my interest in the ${jobTitle} position at ${company}. I believe my background and skills make me a strong candidate for this role.</p>
+      <p>I look forward to discussing how I can contribute to your team.</p>
+      <p>Best regards,<br/><strong>${userName}</strong></p>
+      <hr/><p style="font-size:12px;color:#666">Sent via InstaJob on ${new Date().toLocaleDateString()}</p>
+    </body></html>`;
+  }
 }
 
 // Cleanup function
