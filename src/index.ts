@@ -2,6 +2,7 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
@@ -17,13 +18,14 @@ import webhookRoutes from './routes/webhookRoutes';
 import { integrationsRoutes } from './routes/integrations';
 import { botControlRoutes } from './routes/botControl';
 import { registerAffiliateRoutes } from './routes/affiliateRoutes';
+import { resumeRoutes } from './routes/resume';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
 const start = async () => {
   try {
     // CORS — allow only known frontend origins (no wildcard)
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://instajob-frontend.vercel.app')
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://instajob-frontend.vercel.app,https://instajob.id,https://www.instajob.id')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
@@ -32,6 +34,13 @@ const start = async () => {
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
       credentials: true,
+    });
+
+    // Register multipart for file uploads
+    await fastify.register(multipart, {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max
+      },
     });
 
     // Security headers on every response
@@ -78,7 +87,7 @@ const start = async () => {
 
     // Register JWT
     await fastify.register(jwt, {
-      secret: process.env.JWT_SECRET || 'instajob-secret-key-2026-change-in-production'
+      secret: process.env.JWT_SECRET || (() => { if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET env var required in production'); return 'instajob-dev-secret-key-local-only'; })()
     });
 
     fastify.decorate('authenticate', async function (request: any, reply: any) {
@@ -97,32 +106,30 @@ const start = async () => {
     await fastify.register(integrationsRoutes);
     await fastify.register(botControlRoutes);
     await registerAffiliateRoutes(fastify);
+    await resumeRoutes(fastify);
 
     // === HEALTH CHECK ===
     await startBot();
 
     // Start Background Job Workers
     console.log('Starting background job workers...');
-    
-    // Schedule: Job scraping every 6 hours
-    const scheduleJobScraping = () => {
-      const now = new Date();
-      const hours = now.getHours();
-      if (hours % 6 === 0 && hours !== 0) {
-        jobScrapingQueue.add('daily-scrape-linkedin', {
-          source: 'LinkedIn',
-          query: 'software engineer',
-        });
-        jobScrapingQueue.add('daily-scrape-indeed', {
-          source: 'Indeed',
-          query: 'software engineer',
-        });
+
+    // Schedule: real job scout every 6 hours via Remotive API
+    const runJobScout = async () => {
+      try {
+        const { scoutJobsFromRemotive } = await import('./services/jobScoutService');
+        const queries = ['software engineer', 'data scientist', 'product manager', 'devops engineer', 'mobile developer', 'frontend developer', 'backend developer', 'UI UX designer', 'programmer', 'data analyst', 'full stack developer'];
+        const results = await Promise.all(queries.map(q => scoutJobsFromRemotive(q, 15)));
+        const total = results.reduce((a, b) => a + b, 0);
+        console.log(`[JobScout] inserted ${total} new jobs`);
+      } catch (err: any) {
+        console.error('[JobScout] error:', err.message);
       }
     };
-    
-    scheduleJobScraping();
-    setInterval(scheduleJobScraping, 3600000); // Check every hour
-    
+
+    // Run once at startup + every 6 hours
+    runJobScout();
+    setInterval(runJobScout, 6 * 60 * 60 * 1000);
     console.log('Background workers active');
 
     // Health Check
@@ -248,6 +255,71 @@ const start = async () => {
           }
           console.error('Update name error:', err);
           return reply.code(500).send({ error: 'Failed to update name' });
+        }
+      });
+
+      // POST /api/auth/forgot-password — request reset token (no auth)
+      fastify.post('/api/auth/forgot-password', async (req: any, reply: any) => {
+        try {
+          const { email } = req.body as { email: string };
+          if (!email) return reply.code(400).send({ error: 'Email required' });
+          const user = await prisma.user.findUnique({ where: { email } });
+          // Always return 200 to prevent email enumeration
+          if (!user) return reply.code(200).send({ message: 'If email exists, reset link sent' });
+
+          // Invalidate old tokens
+          await prisma.passwordResetToken.updateMany({ where: { userId: user.id, used: false }, data: { used: true } });
+
+          const crypto = await import('crypto');
+          const token = crypto.randomBytes(32).toString('hex');
+          const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+          await prisma.passwordResetToken.create({ data: { userId: user.id, token, expiresAt } });
+
+          const resetUrl = `${process.env.FRONTEND_URL || 'https://instajob.id'}/reset-password?token=${token}`;
+
+          // Send via Resend HTTP
+          if (process.env.RESEND_API_KEY) {
+            await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: process.env.RESEND_FROM || 'InstaJob <onboarding@resend.dev>',
+                to: email,
+                subject: 'Reset Password InstaJob',
+                html: `<p>Klik link berikut untuk reset password Anda (berlaku 1 jam):</p><p><a href="${resetUrl}">${resetUrl}</a></p>`,
+              }),
+            });
+          } else {
+            console.log(`[PasswordReset] Token for ${email}: ${token}`);
+          }
+          return reply.code(200).send({ message: 'If email exists, reset link sent' });
+        } catch (err) {
+          console.error('Forgot password error:', err);
+          return reply.code(500).send({ error: 'Failed to process request' });
+        }
+      });
+
+      // POST /api/auth/reset-password — confirm reset
+      fastify.post('/api/auth/reset-password', async (req: any, reply: any) => {
+        try {
+          const { token, newPassword } = req.body as { token: string; newPassword: string };
+          if (!token || !newPassword) return reply.code(400).send({ error: 'Token and newPassword required' });
+          if (newPassword.length < 6) return reply.code(400).send({ error: 'Password min 6 chars' });
+
+          const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
+          if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
+            return reply.code(400).send({ error: 'Token invalid or expired' });
+          }
+
+          const hash = await bcrypt.hash(newPassword, 10);
+          await prisma.$transaction([
+            prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash: hash } }),
+            prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { used: true } }),
+          ]);
+          return reply.code(200).send({ message: 'Password reset successful' });
+        } catch (err) {
+          console.error('Reset password error:', err);
+          return reply.code(500).send({ error: 'Failed to reset password' });
         }
       });
 
@@ -1235,7 +1307,7 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
     // GET /api/jobs - List jobs with pagination and filters
     fastify.get('/api/jobs', async (req: any, reply: any) => {
       try {
-        const { page = 1, search, remote, salaryMin, salaryMax } = req.query as any;
+        const { page = 1, search, remote, salaryMin, salaryMax, location } = req.query as any;
         const pageNum = parseInt(page) || 1;
         const pageSize = 10;
         const skip = (pageNum - 1) * pageSize;
@@ -1252,6 +1324,10 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
 
         if (remote !== undefined) {
           where.remote = remote === 'true';
+        }
+
+        if (location) {
+          where.location = { contains: location, mode: 'insensitive' };
         }
 
         if (salaryMin || salaryMax) {
@@ -1289,15 +1365,28 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
       }
     });
 
+    // POST /api/jobs - Create job (admin/seed)
+    fastify.post('/api/jobs', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+      try {
+        const { title, company, location, description, remote = false, salaryMin, salaryMax, industry, tags } = req.body as any;
+        if (!title || !company) return reply.code(400).send({ error: 'title and company required' });
+        const job = await prisma.job.create({ data: { title, company, location, description, remote, salaryMin, salaryMax, industry, tags, postedAt: new Date() } });
+        return reply.code(201).send(job);
+      } catch (e: any) { return reply.code(500).send({ error: e.message }); }
+    });
+
+    // GET /api/jobs/locations - distinct locations for dropdown
+    fastify.get('/api/jobs/locations', async (_req: any, _reply: any) => {
+      const rows = await prisma.job.findMany({ select: { location: true }, distinct: ['location'], orderBy: { location: 'asc' } });
+      return rows.map(r => r.location).filter(Boolean);
+    });
+
     // GET /api/jobs/:id - Get job details
     fastify.get('/api/jobs/:id', async (req: any, reply: any) => {
       try {
         const { id } = req.params;
 
-        const job = await prisma.job.findUnique({
-          where: { id },
-          include: { applications: { select: { id: true, status: true } } }
-        });
+        const job = await prisma.job.findUnique({ where: { id } });
 
         if (!job) return reply.code(404).send({ error: 'Job not found' });
 
@@ -1790,20 +1879,29 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
           return reply.code(404).send({ error: 'User, profile, or job not found' });
         }
 
-        // Generate tailored cover letter using mock/prompt
-        const skillsList = JSON.parse(user.profile.skills || "[]")?.join(', ') || 'Not specified';
-        const coverLetter = `
-Dear Hiring Manager at ${job.company},
+        // Generate AI cover letter via DeepSeek
+        const skillsList = JSON.parse(user.profile.skills || '[]')?.join(', ') || 'none';
+        const reqSkills = JSON.parse(job.requiredSkills || '[]')?.slice(0, 5).join(', ') || 'none';
+        const prompt = `Write a professional job application cover letter from ${user.fullName || 'Candidate'} for the ${job.title} position at ${job.company}.
+Candidate skills: ${skillsList}
+Job required skills: ${reqSkills}
+Job description summary: ${(job.description || '').substring(0, 400)}
+Keep it concise (3 paragraphs), professional, no subject line, plain text.`;
 
-I am writing to express my strong interest in the ${job.title} position at ${job.company}. With a background in the field and key skills including ${skillsList}, I am confident in my ability to contribute effectively to your team.
-
-Your job description highlights the need for someone experienced with ${JSON.parse(job.requiredSkills || "[]")?.slice(0, 3).join(', ') || 'relevant industry practices'}. In my previous experience, I have successfully applied similar capabilities to achieve impactful results. For instance, my work in ${user.profile.location || 'software engineering'} aligned closely with your current initiatives.
-
-I am enthusiastic about the opportunity to join ${job.company} and would welcome the chance to discuss how my qualifications align with your needs in more detail.
-
-Sincerely,
-${user.fullName || 'InstaJob Candidate'}
-        `.trim();
+        let coverLetter: string;
+        try {
+          const { openai } = await import('./services/openaiClient');
+          const resp = await openai.chat.completions.create({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 500,
+            temperature: 0.7,
+          });
+          coverLetter = resp.choices[0]?.message?.content?.trim() || '';
+        } catch (aiErr: any) {
+          console.warn('DeepSeek cover letter fallback:', aiErr.message);
+          coverLetter = `Dear Hiring Manager at ${job.company},\n\nI am writing to express my interest in the ${job.title} position. With skills in ${skillsList}, I am confident I can contribute to your team.\n\nI look forward to discussing this opportunity.\n\nSincerely,\n${user.fullName || 'InstaJob Candidate'}`;
+        }
 
         return { coverLetter };
       } catch (err) {
@@ -1816,10 +1914,22 @@ ${user.fullName || 'InstaJob Candidate'}
 
     // Middleware: Check if user is admin
     const isAdmin = (userId: string) => {
-      // Mock admin check: hardcode admin user ID or email
-      const adminIds = process.env.ADMIN_IDS?.split(',') || ['admin-user-id'];
+      const adminIds = process.env.ADMIN_IDS?.split(',').map(id => id.trim()).filter(Boolean) || [];
       return adminIds.includes(userId);
     };
+
+    // POST /api/jobs/scout - Manual trigger job scout (admin only)
+    fastify.post('/api/jobs/scout', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+      try {
+        const userId = req.user?.sub || req.user?.userId;
+        if (!userId || !isAdmin(userId)) return reply.code(403).send({ error: 'Forbidden: Admin access required' });
+        const { scoutJobsFromRemotive } = await import('./services/jobScoutService');
+        const queries = ['software engineer', 'data scientist', 'product manager', 'devops engineer', 'mobile developer', 'frontend developer', 'backend developer', 'UI UX designer', 'programmer', 'data analyst', 'full stack developer'];
+        const results = await Promise.all(queries.map(q => scoutJobsFromRemotive(q, 15)));
+        const total = results.reduce((a, b) => a + b, 0);
+        return { inserted: total, message: `Scout complete: ${total} new jobs inserted` };
+      } catch (e: any) { return reply.code(500).send({ error: e.message }); }
+    });
 
     // GET /api/admin/users - List all users
     fastify.get('/api/admin/users', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
