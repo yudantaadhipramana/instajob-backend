@@ -202,6 +202,42 @@ export const sendDailyDigest = async () => {
   }
 };
 
+// Command: /pause — pause auto-apply bot
+bot.command('pause', async (ctx) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { telegramChatId: String(ctx.chat.id) } });
+    if (!user) return ctx.reply('Hubungkan akun dulu: /connect [KODE]');
+    await prisma.botConfig.updateMany({ where: { userId: user.id }, data: { isActive: false } });
+    return ctx.reply('Bot dijeda ⏸️\nKetik /resume untuk melanjutkan.');
+  } catch (err) { return ctx.reply('Gagal menjeda bot.'); }
+});
+
+// Command: /resume — resume auto-apply bot
+bot.command('resume', async (ctx) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { telegramChatId: String(ctx.chat.id) } });
+    if (!user) return ctx.reply('Hubungkan akun dulu: /connect [KODE]');
+    await prisma.botConfig.updateMany({ where: { userId: user.id }, data: { isActive: true } });
+    return ctx.reply('Bot dilanjutkan ▶️\nBot akan kembali mencari dan melamar pekerjaan.');
+  } catch (err) { return ctx.reply('Gagal melanjutkan bot.'); }
+});
+
+// Command: /status — bot + lamaran status
+bot.command('status', async (ctx) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { telegramChatId: String(ctx.chat.id) } });
+    if (!user) return ctx.reply('Hubungkan akun dulu: /connect [KODE]');
+    const [config, quota, pending, sent] = await Promise.all([
+      prisma.botConfig.findFirst({ where: { userId: user.id } }),
+      prisma.applyQuota.findUnique({ where: { userId: user.id } }),
+      prisma.autoApplyQueue.count({ where: { userId: user.id, status: 'pending' } }),
+      prisma.autoApplyQueue.count({ where: { userId: user.id, status: 'sent' } }),
+    ]);
+    const status = config?.isActive ? '🟢 Aktif' : '🔴 Dijeda';
+    return ctx.reply(`📊 *Status InstaJob Bot*\n\nBot: ${status}\nLamaran hari ini: ${quota?.appliedToday || 0}/${quota ? 5 : 5}\nMenunggu: ${pending}\nTerkirim: ${sent}\n\nKetik /pause atau /resume untuk kontrol bot.`, { parse_mode: 'Markdown' });
+  } catch (err) { return ctx.reply('Gagal mengambil status.'); }
+});
+
 export const startBot = async () => {
   if (!botToken) {
     console.error('TELEGRAM_BOT_TOKEN not found!');

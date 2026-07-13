@@ -51,6 +51,7 @@ model User {
   payments       Payment[]
   telegramChats  TelegramChat[]
   autoApplyRuns  AutoApplyRun[]
+  passwordResetTokens PasswordResetToken[]
   
   // Phase 3A Corrected Relations
   telegramIntegration TelegramIntegration?
@@ -443,4 +444,17 @@ model BotAnalytics {
 
   @@unique([userId, date])
   @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }
