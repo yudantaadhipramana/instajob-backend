@@ -188,6 +188,33 @@ const start = async () => {
 
 
 
+      // GET /api/user/completeness - Profile completeness score
+      fastify.get('/api/user/completeness', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+          const user = await prisma.user.findUnique({ where: { id: userId }, include: { profile: true } });
+          if (!user) return reply.code(404).send({ error: 'User not found' });
+          const p = user.profile;
+          const checks: Record<string, boolean> = {
+            fullName: !!user.fullName,
+            bio: !!p?.bio,
+            skills: !!p?.skills && p.skills !== '[]',
+            experience: !!p?.experience,
+            education: !!p?.education,
+            location: !!p?.location,
+            resumeUrl: !!p?.resumeUrl,
+            phone: !!p?.phone,
+            jobPreferences: !!p?.jobPreferences && p.jobPreferences !== '{}',
+          };
+          const score = Math.round((Object.values(checks).filter(Boolean).length / Object.keys(checks).length) * 100);
+          const missing = Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
+          return { score, checks, missing };
+        } catch (err) {
+          return reply.code(500).send({ error: 'Failed to calculate completeness' });
+        }
+      });
+
       // PUT /api/user/profile - Update user profile
       fastify.put('/api/user/profile', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         const updateProfileSchema = z.object({
