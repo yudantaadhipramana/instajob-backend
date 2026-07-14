@@ -608,6 +608,12 @@ const start = async () => {
           emailNotifications: z.boolean().optional(),
           telegramNotifications: z.boolean().optional(),
           emailTemplate: z.string().max(2000).optional(),
+          website: z.string().optional(),
+          linkedIn: z.string().optional(),
+          noticePeriod: z.string().optional(),
+          remoteOnly: z.boolean().optional(),
+          skipAgencies: z.boolean().optional(),
+          skipExpMismatch: z.boolean().optional(),
         });
 
         try {
@@ -788,6 +794,15 @@ const start = async () => {
           const aparsed = autoApplySchema.safeParse(req.body);
           if (!aparsed.success) return reply.code(400).send({ error: 'Validation failed', details: aparsed.error.flatten() });
           const { jobId } = aparsed.data;
+
+          // Check profile completeness (min 60% required)
+          const user = await prisma.user.findUnique({ where: { id: userId }, include: { profile: true } });
+          const p = user?.profile;
+          const checks = [!!user?.fullName, !!p?.bio, !!p?.skills && p.skills !== '[]', !!p?.experience, !!p?.education, !!p?.location, !!p?.resumeUrl, !!p?.phone, !!p?.jobPreferences && p.jobPreferences !== '{}'];
+          const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+          if (score < 60) {
+            return reply.code(422).send({ error: 'Profil belum lengkap', completenessScore: score, message: `Lengkapi profil minimal 60% sebelum auto-apply (saat ini ${score}%). Buka /preferences untuk melengkapi.` });
+          }
 
           // Check rate limit
           const quotaStatus = await canUserApply(userId);
