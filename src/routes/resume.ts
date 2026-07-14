@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { openai } from '../services/openaiClient';
 
 const prisma = new PrismaClient();
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 
 export async function resumeRoutes(fastify: FastifyInstance) {
   // POST /api/user/resume/parse — upload PDF + parse with OpenAI
@@ -33,9 +33,12 @@ export async function resumeRoutes(fastify: FastifyInstance) {
         // Extract text from PDF
         let text = '';
         try {
-          const parsed = await pdfParse(buffer);
-          text = parsed.text;
-        } catch {
+          const parser = new PDFParse({ data: new Uint8Array(buffer) });
+          const result = await parser.getText();
+          text = result.text;
+          await parser.destroy();
+        } catch (pdfErr: any) {
+          console.error('PDF parse error:', pdfErr?.message || pdfErr);
           return reply.code(400).send({ error: 'Could not read PDF. Make sure it is a valid PDF file.' });
         }
 
@@ -45,7 +48,7 @@ export async function resumeRoutes(fastify: FastifyInstance) {
 
         // Parse with OpenAI
         const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: 'deepseek-chat',
           messages: [
             {
               role: 'system',
