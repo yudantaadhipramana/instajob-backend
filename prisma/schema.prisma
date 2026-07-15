@@ -113,6 +113,8 @@ model UserProfile {
   phone      String?
   jobPreferences String?  // JSON string for preferences
   profilePicture String?  // URL to uploaded profile picture
+  certifications String?  // JSON array [{name, issuer}]
+  portfolio      String?  // JSON array [{title, url}]
 }
 
 model Job {

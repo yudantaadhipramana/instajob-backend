@@ -58,19 +58,33 @@ export async function resumeRoutes(fastify: FastifyInstance) {
   "email": "string or null",
   "phone": "string or null",
   "location": "string or null",
-  "bio": "2-3 sentence professional summary or null",
-  "experience": "summary of work experience or null",
-  "education": "highest degree and institution or null",
-  "skills": ["array", "of", "skills"]
+  "skills": ["array", "of", "technical skills"],
+  "experience": [
+    {"title": "Job Title", "company": "Company Name", "years": 2}
+  ],
+  "education": [
+    {"degree": "S1/S2/SMA/SMK/D3/etc", "field": "Jurusan atau bidang studi"}
+  ],
+  "certifications": [
+    {"name": "Certification Name", "issuer": "Issuer Name"}
+  ],
+  "portfolio": [
+    {"title": "Project Name", "url": "https://..."}
+  ]
 }
-No markdown, no explanation, just JSON.`,
+Rules:
+- experience.years = integer, estimate from date range if needed
+- education.degree = use short form: S1/S2/S3/D3/D4/SMA/SMK
+- If field cannot be extracted, use null or empty array []
+- Extract ALL entries found, not just the latest
+- No markdown, no explanation, just JSON.`,
             },
             {
               role: 'user',
               content: text.slice(0, 8000),
             },
           ],
-          max_tokens: 1000,
+          max_tokens: 1500,
           temperature: 0,
         });
 

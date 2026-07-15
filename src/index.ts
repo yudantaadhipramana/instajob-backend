@@ -236,8 +236,16 @@ const start = async () => {
         const updateProfileSchema = z.object({
           bio: z.string().optional(),
           skills: z.array(z.string()).optional(),
-          experience: z.string().optional(),
-          education: z.string().optional(),
+          experience: z.union([
+            z.array(z.object({ title: z.string(), company: z.string(), years: z.number().int().min(0) })),
+            z.string(), // backward compat: plain string juga diterima
+          ]).optional(),
+          education: z.union([
+            z.array(z.object({ degree: z.string(), field: z.string() })),
+            z.string(), // backward compat
+          ]).optional(),
+          certifications: z.array(z.object({ name: z.string(), issuer: z.string().optional() })).optional(),
+          portfolio: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
           phone: z.string().optional(),
           location: z.string().optional(),
           resumeUrl: z.string().url().optional(),
@@ -249,7 +257,11 @@ const start = async () => {
 
           const raw = updateProfileSchema.parse(req.body);
           const data: any = { ...raw };
-          if (data.skills) data.skills = JSON.stringify(data.skills); // ponytail: zod array → prisma JSON string
+          if (data.skills) data.skills = JSON.stringify(data.skills);
+          if (data.experience && Array.isArray(data.experience)) data.experience = JSON.stringify(data.experience);
+          if (data.education && Array.isArray(data.education)) data.education = JSON.stringify(data.education);
+          if (data.certifications) data.certifications = JSON.stringify(data.certifications);
+          if (data.portfolio) data.portfolio = JSON.stringify(data.portfolio);
 
           const profile = await prisma.userProfile.upsert({
             where: { userId },
@@ -1878,14 +1890,36 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-
         const { jobId } = req.params as any;
         const score = await calculateMatchScore(userId, jobId);
-
         return { score };
       } catch (err) {
         console.error('AI Match Score error:', err);
         return reply.code(500).send({ error: 'Failed to calculate match score' });
+      }
+    });
+
+    // GET /api/ai/skill-gap/:jobId - Skill gap analysis
+    fastify.get('/api/ai/skill-gap/:jobId', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+      try {
+        const userId = req.user?.sub || req.user?.userId;
+        if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+        const { jobId } = req.params as any;
+        const [user, job] = await Promise.all([
+          prisma.user.findUnique({ where: { id: userId }, include: { profile: true } }),
+          prisma.job.findUnique({ where: { id: jobId } }),
+        ]);
+        if (!user || !job) return reply.code(404).send({ error: 'Not found' });
+        const userSkills: string[] = user.profile?.skills ? JSON.parse(user.profile.skills) : [];
+        const jobSkills: string[] = job.requiredSkills ? JSON.parse(job.requiredSkills) : [];
+        const userLower = userSkills.map((s: string) => s.toLowerCase());
+        const missing = jobSkills.filter((s: string) => !userLower.includes(s.toLowerCase()));
+        const matched = jobSkills.filter((s: string) => userLower.includes(s.toLowerCase()));
+        const matchPct = jobSkills.length ? Math.round((matched.length / jobSkills.length) * 100) : 100;
+        return { matchPct, matched, missing, userSkills, requiredSkills: jobSkills };
+      } catch (err) {
+        console.error('Skill gap error:', err);
+        return reply.code(500).send({ error: 'Failed to calculate skill gap' });
       }
     });
 
