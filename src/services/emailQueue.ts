@@ -72,7 +72,9 @@ export const emailWorker = workersEnabled && connection
         application.user.fullName || 'User',
         application.job.title,
         application.job.company,
-        emailTemplate
+        emailTemplate,
+        'Hiring Manager',
+        application.user.profile || undefined
       );
 
       // Send via Resend
@@ -156,7 +158,9 @@ export async function processEmailQueueSync(userId: string, jobId: string) {
       application.user.fullName || 'User',
       application.job.title,
       application.job.company,
-      emailTemplate
+      emailTemplate,
+      'Hiring Manager',
+      application.user.profile || undefined
     );
 
     console.log(`\n=== GENERATED EMAIL CONTENT [${userId}/${jobId}] ===\n${emailContent}\n=========================================\n`);
@@ -196,8 +200,10 @@ async function generateAIEmail(
   jobTitle: string,
   company: string,
   emailTemplate: string,
-  recruiterName: string = 'Hiring Manager'
+  recruiterName: string = 'Hiring Manager',
+  profile?: { skills?: string; experience?: string; education?: string; certifications?: string; website?: string; linkedIn?: string; }
 ): Promise<string> {
+  const links = buildProfileLinks(profile);
   // Custom template: substitute placeholders, wrap HTML
   if (emailTemplate?.trim()) {
     const content = emailTemplate
@@ -206,16 +212,26 @@ async function generateAIEmail(
       .replace(/{company}/g, company);
     return `<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
       <p>${content.replace(/\n/g, '</p><p>')}</p>
-      <p>Best regards,<br/><strong>${userName}</strong></p>
+      <p>Best regards,<br/><strong>${userName}</strong>${links}</p>
       <hr/><p style="font-size:12px;color:#666">Sent via InstaJob on ${new Date().toLocaleDateString()}</p>
     </body></html>`;
   }
 
   // AI-generated email via OpenAI
   try {
-    const prompt = `Write a professional job application email from ${userName} applying for ${jobTitle} at ${company}. 
-Address it to ${recruiterName}. Keep it concise (3 short paragraphs), professional, and genuine. 
-Do not include subject line. Plain text only, no markdown.`;
+    const skillsList = profile?.skills ? (JSON.parse(profile.skills) as string[]).join(', ') : '';
+    const expList = profile?.experience ? (JSON.parse(profile.experience) as {title:string;company:string;years:number}[]).map((e:any)=>`${e.title} at ${e.company} (${e.years}y)`).join('; ') : '';
+    const eduList = profile?.education ? (JSON.parse(profile.education) as {degree:string;field:string}[]).map((e:any)=>`${e.degree} ${e.field}`).join(', ') : '';
+    const certList = profile?.certifications ? (JSON.parse(profile.certifications) as {name:string}[]).map((c:any)=>c.name).join(', ') : '';
+    const prompt = [
+      `Write a professional job application email from ${userName} applying for ${jobTitle} at ${company}.`,
+      `Address it to ${recruiterName}. Concise 3 paragraphs, professional, genuine. No subject line. Plain text only.`,
+      skillsList ? `Skills: ${skillsList}` : '',
+      expList ? `Experience: ${expList}` : '',
+      eduList ? `Education: ${eduList}` : '',
+      certList ? `Certifications: ${certList}` : '',
+      'Highlight most relevant skills for this role.',
+    ].filter(Boolean).join('\n');
 
     const completion = await openai.chat.completions.create({
       model: 'deepseek-chat',
@@ -236,10 +252,18 @@ Do not include subject line. Plain text only, no markdown.`;
       <p>Dear ${recruiterName},</p>
       <p>I am writing to express my interest in the ${jobTitle} position at ${company}. I believe my background and skills make me a strong candidate for this role.</p>
       <p>I look forward to discussing how I can contribute to your team.</p>
-      <p>Best regards,<br/><strong>${userName}</strong></p>
+      <p>Best regards,<br/><strong>${userName}</strong>${links}</p>
       <hr/><p style="font-size:12px;color:#666">Sent via InstaJob on ${new Date().toLocaleDateString()}</p>
     </body></html>`;
   }
+}
+
+function buildProfileLinks(profile?: { website?: string; linkedIn?: string }): string {
+  if (!profile) return '';
+  const parts: string[] = [];
+  if (profile.linkedIn) parts.push(`<a href="${profile.linkedIn}">LinkedIn</a>`);
+  if (profile.website) parts.push(`<a href="${profile.website}">Website</a>`);
+  return parts.length ? `<br/><small>${parts.join(' &middot; ')}</small>` : '';
 }
 
 // Cleanup function
