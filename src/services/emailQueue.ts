@@ -201,7 +201,7 @@ async function generateAIEmail(
   company: string,
   emailTemplate: string,
   recruiterName: string = 'Hiring Manager',
-  profile?: { skills?: string; experience?: string; education?: string; certifications?: string; website?: string; linkedIn?: string; }
+  profile?: { skills?: string | null; experience?: string | null; education?: string | null; certifications?: string | null; website?: string | null; linkedIn?: string | null; } | null
 ): Promise<string> {
   const links = buildProfileLinks(profile);
   // Custom template: substitute placeholders, wrap HTML
@@ -258,7 +258,7 @@ async function generateAIEmail(
   }
 }
 
-function buildProfileLinks(profile?: { website?: string; linkedIn?: string }): string {
+function buildProfileLinks(profile?: { website?: string | null; linkedIn?: string | null } | null): string {
   if (!profile) return '';
   const parts: string[] = [];
   if (profile.linkedIn) parts.push(`<a href="${profile.linkedIn}">LinkedIn</a>`);
