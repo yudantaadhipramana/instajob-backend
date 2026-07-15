@@ -14,7 +14,6 @@ import { startBot, bot, linkTelegramUser, sendWeeklySummary } from './services/t
 import { canUserApply, incrementApplyCount, getUserQuota } from './services/rateLimit';
 import { calculateMatchScore, getJobRecommendations } from './services/aiService';
 import { registerRateLimit, authRateLimit, inputSanitizeHook, authValidationHook, securityHeadersHook } from './middleware/security';
-import webhookRoutes from './routes/webhookRoutes';
 import { integrationsRoutes } from './routes/integrations';
 import { botControlRoutes } from './routes/botControl';
 import { registerAffiliateRoutes } from './routes/affiliateRoutes';
