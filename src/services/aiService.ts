@@ -59,6 +59,6 @@ export const getJobRecommendations = async (userId: string, limit: number = 10) 
       NOT: { applications: { some: { userId } } },
     },
     take: limit,
-    orderBy: { postedDate: 'desc' },
+    orderBy: { postedAt: 'desc' },
   });
 };
