@@ -174,6 +174,12 @@ export async function processEmailQueueSync(userId: string, jobId: string) {
       data: { status: 'sent', emailContent }
     });
 
+    // Notify user via Telegram
+    await sendTelegramNotification(
+      userId,
+      `✅ *Lamaran Terkirim!*\n\n📋 *${application.job.title}*\n🏢 ${application.job.company}\n📍 ${application.job.location || 'Remote'}\n\n_Email lamaran sudah dikirim via InstaJob._`
+    );
+
     console.log(`Email processed: ${userId}/${jobId}`);
   } catch (err) {
     console.error(`Email processing failed: ${userId}/${jobId}`, err);
