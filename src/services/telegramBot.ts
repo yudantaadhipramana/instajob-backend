@@ -238,12 +238,60 @@ bot.command('status', async (ctx) => {
   } catch (err) { return ctx.reply('Gagal mengambil status.'); }
 });
 
+// Command: /interviews — list interviews
+bot.command('interviews', async (ctx) => {
+  const chatId = ctx.chat.id.toString();
+  try {
+    const user = await prisma.user.findFirst({ where: { telegramChatId: chatId } });
+    if (!user) return ctx.reply('Akun belum terhubung. Ketik /connect.');
+    const interviews = await prisma.application.findMany({
+      where: { userId: user.id, status: { in: ['interviewed', 'offered'] } },
+      include: { job: true },
+      orderBy: { appliedAt: 'desc' },
+      take: 5,
+    });
+    if (!interviews.length) return ctx.reply('Belum ada interview terjadwal.');
+    const msg = interviews.map((a, i) =>
+      `${i+1}. *${a.job.title}* — ${a.job.company}\nStatus: ${a.status}`
+    ).join('\n\n');
+    return ctx.reply(`🎤 *Daftar Interview*\n\n${msg}`, { parse_mode: 'Markdown' });
+  } catch { return ctx.reply('Gagal mengambil data interview.'); }
+});
+
+// Command: /help
+bot.command('help', async (ctx) => {
+  return ctx.reply(
+    `🤖 *InstaJob Bot — Perintah*\n\n` +
+    `/status — Status bot & kuota\n` +
+    `/pause — Jeda auto-apply\n` +
+    `/resume — Lanjut auto-apply\n` +
+    `/jobs — Lowongan terbaru\n` +
+    `/apply — Apply ke lowongan\n` +
+    `/interviews — Daftar interview\n` +
+    `/stats — Statistik lamaran\n` +
+    `/connect — Hubungkan akun`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
 export const startBot = async () => {
   if (!botToken) {
     console.error('TELEGRAM_BOT_TOKEN not found!');
     return;
   }
-  // Start bot in background non-blocking
+
+  // Register bot command menu
+  bot.telegram.setMyCommands([
+    { command: 'status', description: 'Status bot + kuota lamaran' },
+    { command: 'pause', description: 'Jeda auto-apply' },
+    { command: 'resume', description: 'Lanjut auto-apply' },
+    { command: 'jobs', description: 'Lihat lowongan terbaru' },
+    { command: 'apply', description: 'Apply ke lowongan' },
+    { command: 'interviews', description: 'Daftar lamaran yang diinterview' },
+    { command: 'stats', description: 'Statistik lamaran' },
+    { command: 'help', description: 'Bantuan perintah bot' },
+  ]).catch(err => console.error('setMyCommands error:', err));
+
   bot.launch().catch(err => {
     console.error('Telegraf launch error:', err);
   });
