@@ -115,6 +115,8 @@ model UserProfile {
   profilePicture String?  // URL to uploaded profile picture
   certifications String?  // JSON array [{name, issuer}]
   portfolio      String?  // JSON array [{title, url}]
+  website        String?
+  linkedIn       String?
 }
 
 model Job {
