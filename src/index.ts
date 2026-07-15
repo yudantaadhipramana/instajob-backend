@@ -10,7 +10,7 @@ import { authRoutes } from './auth';
 import { emailQueue, processEmailQueueSync } from './services/emailQueue';
 import { notificationQueue } from './services/notificationQueue';
 import { jobScrapingQueue } from './services/jobScrapingQueue';
-import { startBot, bot, linkTelegramUser } from './services/telegramBot';
+import { startBot, bot, linkTelegramUser, sendWeeklySummary } from './services/telegramBot';
 import { canUserApply, incrementApplyCount, getUserQuota } from './services/rateLimit';
 import { calculateMatchScore, getJobRecommendations } from './services/aiService';
 import { registerRateLimit, authRateLimit, inputSanitizeHook, authValidationHook, securityHeadersHook } from './middleware/security';
@@ -130,6 +130,15 @@ const start = async () => {
     // Run once at startup + every 6 hours
     runJobScout();
     setInterval(runJobScout, 6 * 60 * 60 * 1000);
+
+    // Weekly summary every Sunday 09:00 (check every hour)
+    const runWeeklySummary = async () => {
+      const now = new Date();
+      if (now.getDay() === 0 && now.getHours() === 9) {
+        await sendWeeklySummary().catch(err => console.error('[WeeklySummary]', err.message));
+      }
+    };
+    setInterval(runWeeklySummary, 60 * 60 * 1000);
     console.log('Background workers active');
 
     // Health Check

@@ -202,6 +202,31 @@ export const sendDailyDigest = async () => {
   }
 };
 
+// Weekly summary per user (every Sunday)
+export const sendWeeklySummary = async () => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isTelegramLinked: true, telegramChatId: { not: null } }
+    });
+    if (!users.length) return;
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    for (const user of users) {
+      if (!user.telegramChatId) continue;
+      const [sent, interviews, offered] = await Promise.all([
+        prisma.autoApplyQueue.count({ where: { userId: user.id, status: 'sent', updatedAt: { gte: weekAgo } } }),
+        prisma.application.count({ where: { userId: user.id, status: 'interviewed', appliedAt: { gte: weekAgo } } }),
+        prisma.application.count({ where: { userId: user.id, status: 'offered', appliedAt: { gte: weekAgo } } }),
+      ]);
+      const msg = `📊 *Ringkasan Minggu Ini*\n\n` +
+        `📨 Lamaran terkirim: *${sent}*\n` +
+        `🎤 Dipanggil interview: *${interviews}*\n` +
+        `🎉 Dapat penawaran: *${offered}*\n\n` +
+        `_Pantau dashboard: ${process.env.FRONTEND_URL || 'https://instajob.id'}/monitor_`;
+      await bot.telegram.sendMessage(user.telegramChatId, msg, { parse_mode: 'Markdown' }).catch(() => {});
+    }
+  } catch (err) { console.error('Weekly summary error:', err); }
+};
+
 // Command: /pause — pause auto-apply bot
 bot.command('pause', async (ctx) => {
   try {
