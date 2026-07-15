@@ -1,4 +1,11 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
+
+// Init Sentry before everything else (no-op if SENTRY_DSN unset)
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+}
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
@@ -86,7 +93,8 @@ const start = async () => {
 
     // Register JWT
     await fastify.register(jwt, {
-      secret: process.env.JWT_SECRET || (() => { if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET env var required in production'); return 'instajob-dev-secret-key-local-only'; })()
+      secret: process.env.JWT_SECRET || (() => { if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET env var required in production'); return 'instajob-dev-secret-key-local-only'; })(),
+      sign: { expiresIn: '7d' }
     });
 
     fastify.decorate('authenticate', async function (request: any, reply: any) {
