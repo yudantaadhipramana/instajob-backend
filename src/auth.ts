@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
+import { authRateLimit } from './middleware/security';
 
 const prisma = new PrismaClient();
 
@@ -30,7 +31,7 @@ const LoginBodySchema = z.object({
 
 export async function authRoutes(fastify: FastifyInstance) {
   // Register
-  fastify.post('/api/auth/register', async (req: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply) => {
+  fastify.post('/api/auth/register', { config: { rateLimit: authRateLimit } }, async (req: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply) => {
     try {
       const validationResult = RegisterBodySchema.safeParse(req.body);
       if (validationResult.success === false) {
@@ -80,7 +81,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   });
 
   // Login
-  fastify.post('/api/auth/login', async (req: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) => {
+  fastify.post('/api/auth/login', { config: { rateLimit: authRateLimit } }, async (req: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) => {
     try {
       const validationResult = LoginBodySchema.safeParse(req.body);
       if (validationResult.success === false) {
@@ -150,7 +151,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   });
 
   // Google Sign-In (credential from @react-oauth/google)
-  fastify.post('/api/auth/google', async (req: any, reply: any) => {
+  fastify.post('/api/auth/google', { config: { rateLimit: authRateLimit } }, async (req: any, reply: any) => {
     try {
       const { credential } = req.body as { credential: string };
       if (!credential) return reply.code(400).send({ error: 'credential required' });
