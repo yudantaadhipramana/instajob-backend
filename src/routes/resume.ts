@@ -27,7 +27,8 @@ export async function resumeRoutes(fastify: FastifyInstance) {
 
       // Save PDF to disk
       fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      const filename = `${userId}_${Date.now()}.pdf`;
+      const originalName = (data.filename || 'cv.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `${userId}_${Date.now()}_${originalName}`;
       const filepath = path.join(UPLOAD_DIR, filename);
       fs.writeFileSync(filepath, buffer);
       const resumeUrl = `/uploads/resumes/${filename}`;

@@ -625,6 +625,10 @@ const start = async () => {
             emailNotifications: prefs.emailNotifications ?? true,
             telegramNotifications: prefs.telegramNotifications ?? false,
             emailTemplate: prefs.emailTemplate ?? '',
+            noticePeriod: prefs.noticePeriod ?? 'Immediately',
+            remoteOnly: prefs.remoteOnly ?? false,
+            skipAgencies: prefs.skipAgencies ?? false,
+            skipExpMismatch: prefs.skipExpMismatch ?? false,
           });
         } catch (err) {
           console.error('Get preferences error:', err);
