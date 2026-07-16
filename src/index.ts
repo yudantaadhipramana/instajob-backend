@@ -18,7 +18,6 @@ import bcrypt from 'bcrypt';
 import { authRoutes } from './auth';
 import { emailQueue, processEmailQueueSync } from './services/emailQueue';
 import { notificationQueue } from './services/notificationQueue';
-import { jobScrapingQueue } from './services/jobScrapingQueue';
 import { startBot, bot, linkTelegramUser, sendWeeklySummary } from './services/telegramBot';
 import { canUserApply, incrementApplyCount, getUserQuota } from './services/rateLimit';
 import { calculateMatchScore, getJobRecommendations } from './services/aiService';
