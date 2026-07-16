@@ -248,9 +248,9 @@ const start = async () => {
           portfolio: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
           phone: z.string().optional(),
           location: z.string().optional(),
-          resumeUrl: z.string().url().optional(),
-          website: z.string().url().optional(),
-          linkedIn: z.string().url().optional(),
+          resumeUrl: z.string().optional(),
+          website: z.string().optional(),
+          linkedIn: z.string().optional(),
         });
 
         try {
