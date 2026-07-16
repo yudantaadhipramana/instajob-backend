@@ -234,23 +234,23 @@ const start = async () => {
       // PUT /api/user/profile - Update user profile
       fastify.put('/api/user/profile', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         const updateProfileSchema = z.object({
-          bio: z.string().optional(),
+          bio: z.string().nullable().optional(),
           skills: z.array(z.string()).optional(),
           experience: z.union([
             z.array(z.object({ title: z.string(), company: z.string(), years: z.number().int().min(0) })),
-            z.string(), // backward compat: plain string juga diterima
+            z.string(),
           ]).optional(),
           education: z.union([
             z.array(z.object({ degree: z.string(), field: z.string() })),
-            z.string(), // backward compat
+            z.string(),
           ]).optional(),
           certifications: z.array(z.object({ name: z.string(), issuer: z.string().optional() })).optional(),
           portfolio: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
-          phone: z.string().optional(),
-          location: z.string().optional(),
-          resumeUrl: z.string().optional(),
-          website: z.string().optional(),
-          linkedIn: z.string().optional(),
+          phone: z.string().nullable().optional(),
+          location: z.string().nullable().optional(),
+          resumeUrl: z.string().nullable().optional(),
+          website: z.string().nullable().optional(),
+          linkedIn: z.string().nullable().optional(),
         });
 
         try {
