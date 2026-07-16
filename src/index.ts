@@ -1008,6 +1008,45 @@ const start = async () => {
         }
       });
 
+      // GET /api/affiliate/dashboard
+      fastify.get('/api/affiliate/dashboard', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              referralCode: true,
+              points: true,
+              affiliateTier: true,
+              referrals: { select: { id: true, email: true, createdAt: true } },
+              referralStat: true,
+            }
+          });
+          if (!user) return reply.code(404).send({ error: 'User not found' });
+
+          const tierCommission: Record<number, number> = { 1: 20, 2: 25, 3: 28, 4: 30 };
+          return {
+            referralCode: user.referralCode,
+            points: user.points,
+            affiliateTier: user.affiliateTier,
+            commissionRate: tierCommission[user.affiliateTier] ?? 20,
+            totalReferrals: user.referrals.length,
+            referrals: user.referrals,
+            stats: user.referralStat ?? {
+              totalClicks: 0,
+              totalSignups: 0,
+              totalConversions: 0,
+              conversionRate: 0,
+            },
+          };
+        } catch (err: any) {
+          console.error('Affiliate dashboard error:', err);
+          return reply.code(500).send({ error: 'Failed to fetch affiliate data' });
+        }
+      });
+
       // POST /api/referral/redeem - Redeem a referral code
       fastify.post('/api/referral/redeem', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
         try {
