@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -192,7 +194,8 @@ export async function sendEmailViaGmail(
   userId: string,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  resumeUrl?: string | null
 ): Promise<{ messageId: string }> {
   const integration = await prisma.gmailIntegration.findUnique({ where: { userId } });
 
@@ -208,29 +211,56 @@ export async function sendEmailViaGmail(
   client.setCredentials({ refresh_token: integration.refreshToken });
 
   const gmail = google.gmail({ version: 'v1', auth: client });
-
-  // Build RFC 2822 raw message
   const from = integration.gmailEmail;
-  const messageParts = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    body
-  ];
-  const raw = Buffer.from(messageParts.join('\r\n'))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  const boundary = `boundary_${Date.now()}`;
 
-  const result = await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: { raw }
-  });
+  // Try to read CV file if resumeUrl is a local path
+  let cvBuffer: Buffer | null = null;
+  let cvFilename = 'CV.pdf';
+  if (resumeUrl && resumeUrl.startsWith('/uploads/')) {
+    const cvPath = path.join(process.cwd(), resumeUrl);
+    if (fs.existsSync(cvPath)) {
+      cvBuffer = fs.readFileSync(cvPath);
+      cvFilename = path.basename(cvPath);
+    }
+  }
 
+  let raw: string;
+  if (cvBuffer) {
+    // MIME multipart with CV attachment
+    const parts = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset=utf-8',
+      'Content-Transfer-Encoding: quoted-printable',
+      '',
+      body,
+      '',
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="${cvFilename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${cvFilename}"`,
+      '',
+      cvBuffer.toString('base64'),
+      '',
+      `--${boundary}--`,
+    ];
+    raw = Buffer.from(parts.join('\r\n')).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } else {
+    // Plain HTML email
+    const parts = [
+      `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
+      'MIME-Version: 1.0', 'Content-Type: text/html; charset=utf-8', '', body,
+    ];
+    raw = Buffer.from(parts.join('\r\n')).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const result = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
   return { messageId: result.data.id! };
 }
 

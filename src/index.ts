@@ -10,6 +10,8 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
+import staticFiles from '@fastify/static';
+import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
@@ -44,9 +46,13 @@ const start = async () => {
 
     // Register multipart for file uploads
     await fastify.register(multipart, {
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB max
-      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    });
+
+    // Serve uploaded CVs as static files
+    await fastify.register(staticFiles, {
+      root: path.join(process.cwd(), 'uploads'),
+      prefix: '/uploads/',
     });
 
     // Security headers on every response
