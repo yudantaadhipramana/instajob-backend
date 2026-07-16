@@ -135,7 +135,8 @@ model Job {
   expiresAt   DateTime?
   industry    String?
   requiredSkills String?  // JSON array stored as string
-  sourceUrl   String?    // External job listing URL (for redirect-only jobs)
+  sourceUrl      String?    // External job listing URL (for redirect-only jobs)
+  recruiterEmail String?    // Extracted recruiter/HRD email for auto-apply
 
   applications   Application[]
   autoApplyQueue AutoApplyQueue[]

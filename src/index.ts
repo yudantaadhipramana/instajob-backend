@@ -127,14 +127,17 @@ const start = async () => {
     // Start Background Job Workers
     console.log('Starting background job workers...');
 
-    // Schedule: real job scout every 6 hours via Remotive API
+    // Schedule: 4-layer waterfall scout every 6 hours
     const runJobScout = async () => {
       try {
-        const { scoutJobsFromRemotive } = await import('./services/jobScoutService');
+        const { scoutJobsWaterfall } = await import('./services/jobScoutWaterfall');
         const queries = ['software engineer', 'data scientist', 'product manager', 'devops engineer', 'mobile developer', 'frontend developer', 'backend developer', 'UI UX designer', 'programmer', 'data analyst', 'full stack developer'];
-        const results = await Promise.all(queries.map(q => scoutJobsFromRemotive(q, 15)));
-        const total = results.reduce((a, b) => a + b, 0);
-        console.log(`[JobScout] inserted ${total} new jobs`);
+        let total = 0;
+        for (const q of queries) {
+          const n = await scoutJobsWaterfall(q, 10);
+          total += n;
+        }
+        console.log(`[JobScout] waterfall inserted ${total} new jobs`);
       } catch (err: any) {
         console.error('[JobScout] error:', err.message);
       }
