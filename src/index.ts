@@ -249,6 +249,8 @@ const start = async () => {
           phone: z.string().optional(),
           location: z.string().optional(),
           resumeUrl: z.string().url().optional(),
+          website: z.string().url().optional(),
+          linkedIn: z.string().url().optional(),
         });
 
         try {
