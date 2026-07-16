@@ -32,7 +32,7 @@ const prisma = new PrismaClient();
 const start = async () => {
   try {
     // CORS — allow only known frontend origins (no wildcard)
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://instajob-frontend.vercel.app,https://instajob.id,https://www.instajob.id')
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001,https://instajob.my.id,https://www.instajob.my.id,https://instajob-frontend.vercel.app,https://instajob.id,https://www.instajob.id')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
