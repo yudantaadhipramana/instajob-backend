@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { openai } from '../services/openaiClient';
 
 const prisma = new PrismaClient();
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'resumes');
 
 export async function resumeRoutes(fastify: FastifyInstance) {
@@ -35,7 +35,7 @@ export async function resumeRoutes(fastify: FastifyInstance) {
       // Extract text
       let text = '';
       try {
-        const result = await pdfParse(buffer);
+        const result = await new PDFParse({ data: new Uint8Array(buffer) }).getText();
         text = result.text;
       } catch {
         fs.unlinkSync(filepath);
