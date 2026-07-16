@@ -135,6 +135,7 @@ model Job {
   expiresAt   DateTime?
   industry    String?
   requiredSkills String?  // JSON array stored as string
+  sourceUrl   String?    // External job listing URL (for redirect-only jobs)
 
   applications   Application[]
   autoApplyQueue AutoApplyQueue[]
