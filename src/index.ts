@@ -480,10 +480,14 @@ const start = async () => {
             data: { userId, status: 'running', snapshotPreference: JSON.stringify(prefs), startedAt: new Date() }
           });
 
+          // Only queue jobs that have recruiterEmail (can actually auto-apply via email)
           const jobs = await prisma.job.findMany({
-            where: { ...(prefs.remote === true && { remote: true }) },
+            where: {
+              recruiterEmail: { not: null },
+              ...(prefs.remote === true && { remote: true }),
+            },
             take: 50,
-            orderBy: { postedAt: 'desc' }
+            orderBy: { postedAt: 'desc' },
           });
 
           const queueItems = await Promise.all(
@@ -493,6 +497,15 @@ const start = async () => {
               update: {}
             }))
           );
+
+          // Fire-and-forget: process each queued email asynchronously
+          const { processEmailQueueSync } = await import('./services/emailQueue');
+          Promise.allSettled(
+            queueItems.map(q => processEmailQueueSync(userId, q.jobId))
+          ).then(results => {
+            const sent = results.filter(r => r.status === 'fulfilled').length;
+            console.log(`[Bot] run_${run.id}: ${sent}/${queueItems.length} emails processed`);
+          });
 
           await prisma.botStatus.upsert({
             where: { processId: `run_${run.id}` },
