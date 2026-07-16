@@ -257,6 +257,7 @@ const start = async () => {
           resumeUrl: z.string().nullable().optional(),
           website: z.string().nullable().optional(),
           linkedIn: z.string().nullable().optional(),
+          profilePicture: z.string().nullable().optional(),
         });
 
         try {
