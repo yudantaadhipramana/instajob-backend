@@ -3,6 +3,7 @@ import IORedis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import { sendTelegramNotification } from './telegramBot';
 import { openai } from './openaiClient';
+import { sendEmailViaGmail } from './gmailService';
 
 const prisma = new PrismaClient();
 const workersEnabled = process.env.ENABLE_WORKERS !== 'false';
@@ -165,12 +166,23 @@ export async function processEmailQueueSync(userId: string, jobId: string) {
 
     console.log(`\n=== GENERATED EMAIL CONTENT [${userId}/${jobId}] ===\n${emailContent}\n=========================================\n`);
 
-    // Send via Resend
-    await sendEmail(
-      process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
-      `Application for ${application.job.title} at ${application.job.company}`,
-      emailContent,
-    );
+    // Send via Gmail (user account) → fallback Resend if Gmail not connected
+    const recipient = application.job.recruiterEmail
+      || process.env.MOCK_RECIPIENT_EMAIL
+      || 'test@example.com';
+    try {
+      await sendEmailViaGmail(
+        userId,
+        recipient,
+        `Lamaran: ${application.job.title} - ${application.job.company}`,
+        emailContent,
+        application.user.profile?.resumeUrl || null,
+      );
+    } catch (gmailErr: any) {
+      // Gmail not connected or token expired → fallback Resend
+      console.warn(`[EmailQueue] Gmail failed (${gmailErr.message}), fallback Resend`);
+      await sendEmail(recipient, `Lamaran: ${application.job.title} - ${application.job.company}`, emailContent);
+    }
 
     // Update status to sent
     await prisma.autoApplyQueue.update({
