@@ -22,55 +22,30 @@ export const jobScrapingWorker = workersEnabled && connection
   ? new Worker(
   'job-scraping',
   async (job) => {
-    const { source, query } = job.data;
-    console.log(`Scraping jobs from ${source} for query "${query}"`);
-
-    // In a real app, this would use a library like Playwright or Cheerio
-    // to scrape jobs from LinkedIn, Indeed, etc.
-
-    // Mock job scraping
-    const mockJobs = [
-      {
-        title: `Software Engineer (${source})`,
-        description: `Exciting role for a developer at a top tech company. Query: ${query}`,
-        company: 'Tech Corp',
-        location: 'Remote',
-        salaryMin: 80000,
-        salaryMax: 120000,
-        remote: true
-      },
-      {
-        title: `Product Manager (${source})`,
-        description: `Lead product strategy and execution. Query: ${query}`,
-        company: 'Innovate Inc.',
-        location: 'New York, NY',
-        salaryMin: 100000,
-        salaryMax: 150000,
-        remote: false
-      }
-    ];
+    const { role, location, workType, limit } = job.data;
+    console.log(`[JobScrapingWorker] Start: role="${role}" location="${location}" workType="${workType}"`);
 
     try {
-      await prisma.job.createMany({
-        data: mockJobs,
-        skipDuplicates: true
-      });
+      // Import waterfall dynamically to avoid circular deps
+      const { scoutJobsWaterfall } = await import('./jobScoutWaterfall');
       
-      console.log(`Saved ${mockJobs.length} new jobs from ${source}`);
-      return { success: true, count: mockJobs.length };
-    } catch (err) {
-      console.error('Job scraping db error:', err);
+      const inserted = await scoutJobsWaterfall(role, limit || 10, { role, location, workType });
+      
+      console.log(`[JobScrapingWorker] Complete: ${inserted} jobs inserted`);
+      return { success: true, inserted };
+    } catch (err: any) {
+      console.error('[JobScrapingWorker] Error:', err.message);
       throw err;
     }
   },
-  { connection: connection as any, concurrency: 1 }
+  { connection: connection as any, concurrency: 2 }
 )
   : null as any;
 
 jobScrapingWorker?.on('completed', (job: any, result: any) => {
-  console.log(`Job scraping job ${job.id} completed. Found ${result.count} new jobs.`);
+  console.log(`[JobScrapingWorker] Job ${job.id} completed. Inserted ${result.inserted} jobs.`);
 });
 
 jobScrapingWorker?.on('failed', (job: any, err: any) => {
-  console.error(`Job scraping job ${job?.id} failed:`, err.message);
+  console.error(`[JobScrapingWorker] Job ${job?.id} failed:`, err.message);
 });
