@@ -83,7 +83,7 @@ export async function integrationsRoutes(fastify: any) {
       }
 
       const result = await handleGmailCallback(code, state);
-      reply.send({ success: true, email: result.email });
+      return reply.redirect('https://instajob.my.id/settings?gmail=success');
     } catch (error: any) {
       reply.status(400).send({ error: error.message });
     }
