@@ -2071,11 +2071,27 @@ Keep it concise (3 paragraphs), professional, no subject line, plain text.`;
       try {
         const userId = req.user?.sub || req.user?.userId;
         if (!userId || !isAdmin(userId)) return reply.code(403).send({ error: 'Forbidden: Admin access required' });
-        const { scoutJobsFromRemotive } = await import('./services/jobScoutService');
-        const queries = ['software engineer', 'data scientist', 'product manager', 'devops engineer', 'mobile developer', 'frontend developer', 'backend developer', 'UI UX designer', 'programmer', 'data analyst', 'full stack developer'];
-        const results = await Promise.all(queries.map(q => scoutJobsFromRemotive(q, 15)));
+        
+        const { scoutJobsWaterfall } = await import('./services/jobScoutWaterfall');
+        
+        // Query list — multiple roles/locations
+        const queryConfigs = [
+          { role: 'software engineer', location: 'Indonesia', workType: 'remote' },
+          { role: 'frontend developer', location: 'Indonesia', workType: 'remote' },
+          { role: 'backend developer', location: 'Indonesia', workType: 'remote' },
+          { role: 'data scientist', location: 'Indonesia', workType: 'any' },
+          { role: 'devops engineer', location: 'Indonesia', workType: 'remote' },
+          { role: 'product manager', location: 'Indonesia', workType: 'any' },
+          { role: 'UI/UX designer', location: 'Indonesia', workType: 'remote' },
+          { role: 'mobile developer', location: 'Indonesia', workType: 'remote' },
+        ];
+        
+        const results = await Promise.all(
+          queryConfigs.map(cfg => scoutJobsWaterfall(cfg.role, 10, cfg))
+        );
         const total = results.reduce((a, b) => a + b, 0);
-        return { inserted: total, message: `Scout complete: ${total} new jobs inserted` };
+        
+        return { inserted: total, message: `Scout waterfall complete: ${total} new jobs inserted`, configs: queryConfigs.length };
       } catch (e: any) { return reply.code(500).send({ error: e.message }); }
     });
 
