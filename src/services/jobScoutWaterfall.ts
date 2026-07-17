@@ -11,6 +11,7 @@
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { checkScoutCache, updateScoutCache, recordScoutRun } from './scoutCacheService';
+import { parseATSJob, isATSUrl } from './atsParserService';
 
 const prisma = new PrismaClient();
 
@@ -69,6 +70,17 @@ async function upsertJob(j: ScoutedJob): Promise<boolean> {
     }
     return false; // not new
   }
+  
+  // Try to parse ATS URL if available
+  let parsedData: any = null;
+  if (j.sourceUrl && isATSUrl(j.sourceUrl)) {
+    parsedData = await parseATSJob(j.sourceUrl);
+    if (parsedData) {
+      // Merge parsed data with scraped data (parsed has priority)
+      j = { ...j, ...parsedData };
+    }
+  }
+  
   await prisma.job.create({
     data: {
       title: j.title,
