@@ -16,11 +16,11 @@ import { parseATSJob, isATSUrl } from './atsParserService';
 const prisma = new PrismaClient();
 
 // ─── Circuit Breaker State (in-memory, per-process) ─────────────────────────
-// DDGS disabled — not used
-// let ddgsFailCount = 0;
-// let ddgsCooldownUntil = 0;
-// const DDGS_MAX_FAIL = 3;
-// const DDGS_COOLDOWN_MS = 30 * 60 * 1000;
+// DDGS disabled — not used in main waterfall, but kept for layer2_ddgs_retry backup
+let ddgsFailCount = 0;
+let ddgsCooldownUntil = 0;
+const DDGS_MAX_FAIL = 3;
+const DDGS_COOLDOWN_MS = 30 * 60 * 1000; // 30 min
 
 // ─── Email Extractor ─────────────────────────────────────────────────────────
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -153,6 +153,106 @@ async function layer2_ddgs(query: string, limit = 10): Promise<number> {
   return 0;
 }
 
+// ─── Layer 2 Alternative: DDGS via Axios with proper headers (experimental) ──
+// NOTE: Kept for future resurrection if DDG endpoint becomes stable
+async function layer2_ddgs_retry(query: string, limit = 10): Promise<number> {
+  const now = Date.now();
+  if (ddgsCooldownUntil > now) {
+    console.log(`[Scout DDGS-Retry] cooldown active, skip`);
+    return 0;
+  }
+
+  const retries = [1000, 3000, 8000, 15000];
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate',
+    'DNT': '1',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Referer': 'https://duckduckgo.com/',
+    'Cache-Control': 'max-age=0',
+  };
+
+  for (let attempt = 0; attempt < retries.length; attempt++) {
+    try {
+      // Random delay to avoid rate-limit
+      const delayMs = Math.random() * 500;
+      await new Promise(r => setTimeout(r, delayMs));
+
+      const q = encodeURIComponent(`${query} lowongan kerja email HRD site:*.id OR site:linkedin.com`);
+      const { data } = await axios.get(
+        `https://html.duckduckgo.com/html/?q=${q}&t=h_&ia=web`,
+        {
+          timeout: retries[attempt],
+          headers,
+          maxRedirects: 5,
+          validateStatus: () => true, // Accept any status
+        }
+      );
+
+      if (!data || data.length < 100) {
+        throw new Error(`Empty response from DDG (${data?.length || 0} bytes)`);
+      }
+
+      // Extract results from DDG HTML (simple regex — no Cheerio dependency)
+      const titleRe = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+      const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+
+      const titles: { url: string; title: string }[] = [];
+      let m;
+      while ((m = titleRe.exec(data)) !== null) {
+        titles.push({ url: m[1], title: m[2].trim().replace(/<[^>]+>/g, '') });
+        if (titles.length >= limit) break;
+      }
+
+      const snippets: string[] = [];
+      while ((m = snippetRe.exec(data)) !== null) {
+        snippets.push(m[1].trim().replace(/<[^>]+>/g, ' '));
+      }
+
+      if (titles.length === 0) {
+        throw new Error('No results extracted from DDG HTML');
+      }
+
+      ddgsFailCount = 0; // reset on success
+
+      let inserted = 0;
+      for (let i = 0; i < titles.length; i++) {
+        const snip = snippets[i] || '';
+        const emails = extractEmails(snip);
+        const ok = await upsertJob({
+          title: titles[i].title || query,
+          company: new URL(titles[i].url.startsWith('http') ? titles[i].url : 'https://example.com').hostname || 'Unknown',
+          location: 'Indonesia',
+          description: snip,
+          sourceUrl: titles[i].url,
+          recruiterEmail: emails[0],
+        });
+        if (ok) inserted++;
+      }
+      
+      console.log(`[Scout DDGS-Retry] success: ${titles.length} results, ${inserted} inserted`);
+      return inserted;
+    } catch (err: any) {
+      console.warn(`[Scout DDGS-Retry] attempt ${attempt + 1}/${retries.length} failed: ${err.message}`);
+      if (attempt < retries.length - 1) {
+        await new Promise(r => setTimeout(r, retries[attempt]));
+      }
+    }
+  }
+
+  // All retries failed → circuit breaker
+  ddgsFailCount++;
+  if (ddgsFailCount >= DDGS_MAX_FAIL) {
+    ddgsCooldownUntil = Date.now() + DDGS_COOLDOWN_MS;
+    console.warn(`[Scout DDGS-Retry] circuit breaker open, cooldown 30min`);
+    ddgsFailCount = 0;
+  }
+  return 0;
+}
+
 // ─── Layer 4: Google CSE Paid ─────────────────────────────────────────────────
 async function layer4_csePaid(query: string, limit = 10): Promise<number> {
   const apiKey = process.env.GOOGLE_CSE_PAID_API_KEY || process.env.GOOGLE_CSE_API_KEY;
@@ -242,4 +342,4 @@ export async function scoutJobsWaterfall(query: string, limit = 10, params?: { r
 }
 
 // Keep backward compat — cron still calls scoutJobsFromRemotive as fallback
-export { scoutJobsWaterfall as default };
+export { scoutJobsWaterfall as default, layer2_ddgs_retry };

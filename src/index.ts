@@ -2066,7 +2066,33 @@ Keep it concise (3 paragraphs), professional, no subject line, plain text.`;
       return adminIds.includes(userId);
     };
 
-    // POST /api/jobs/scout - Manual trigger job scout (admin only)
+    // POST /api/jobs/scout/ddgs-test - Test DDGS retry layer (admin only, temporary)
+    fastify.post('/api/jobs/scout/ddgs-test', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+      try {
+        const userId = req.user?.sub || req.user?.userId;
+        if (!userId || !isAdmin(userId)) return reply.code(403).send({ error: 'Forbidden: Admin access required' });
+
+        const { query = 'software engineer', limit = 5 } = req.body || {};
+        
+        // Test layer2_ddgs_retry directly
+        const { layer2_ddgs_retry } = await import('./services/jobScoutWaterfall');
+        const startTime = Date.now();
+        const inserted = await layer2_ddgs_retry(query, limit);
+        const durationMs = Date.now() - startTime;
+
+        return reply.send({
+          success: true,
+          layer: 'DDGS-Retry',
+          query,
+          inserted,
+          durationMs,
+          message: `DDGS retry test: ${inserted} jobs inserted in ${durationMs}ms`,
+        });
+      } catch (err: any) {
+        console.error('[Scout DDGS-Test]', err);
+        return reply.code(500).send({ error: err.message });
+      }
+    });
     fastify.post('/api/jobs/scout', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
         const userId = req.user?.sub || req.user?.userId;
