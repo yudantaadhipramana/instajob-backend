@@ -1,10 +1,11 @@
 /**
  * jobScoutWaterfall.ts
- * 4-Layer Scout Engine (waterfall fallback):
+ * 3-Layer Scout Engine (waterfall fallback):
  *   Layer 3 — Local Parser  : DB cache check (zero cost)
  *   Layer 1 — CSE Free      : Google Custom Search API (free, 100 req/day)
- *   Layer 2 — DDGS Primary  : DuckDuckGo HTML search (free, circuit breaker)
  *   Layer 4 — CSE Paid      : Google CSE paid (last resort)
+ * 
+ * NOTE: Layer 2 DDGS disabled — endpoint unreliable/rate-limited
  */
 
 import axios from 'axios';
@@ -14,10 +15,11 @@ import { checkScoutCache, updateScoutCache, recordScoutRun } from './scoutCacheS
 const prisma = new PrismaClient();
 
 // ─── Circuit Breaker State (in-memory, per-process) ─────────────────────────
-let ddgsFailCount = 0;
-let ddgsCooldownUntil = 0;
-const DDGS_MAX_FAIL = 3;
-const DDGS_COOLDOWN_MS = 30 * 60 * 1000; // 30 min
+// DDGS disabled — not used
+// let ddgsFailCount = 0;
+// let ddgsCooldownUntil = 0;
+// const DDGS_MAX_FAIL = 3;
+// const DDGS_COOLDOWN_MS = 30 * 60 * 1000;
 
 // ─── Email Extractor ─────────────────────────────────────────────────────────
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -132,76 +134,10 @@ async function layer1_cse(query: string, limit = 10): Promise<number> {
 }
 
 // ─── Layer 2: DDGS Primary ───────────────────────────────────────────────────
+// DISABLED — DuckDuckGo HTML endpoint unreliable/rate-limited
+// Fallback to CSE Layer 1 + Layer 4 instead
 async function layer2_ddgs(query: string, limit = 10): Promise<number> {
-  const now = Date.now();
-  if (ddgsCooldownUntil > now) {
-    console.log(`[Scout DDGS] cooldown active, skip`);
-    return 0;
-  }
-
-  const retries = [2000, 5000, 15000];
-  for (let attempt = 0; attempt < retries.length; attempt++) {
-    try {
-      const q = encodeURIComponent(`${query} lowongan kerja email HRD site:*.id OR site:linkedin.com`);
-      const { data } = await axios.get(
-        `https://html.duckduckgo.com/html/?q=${q}`,
-        {
-          timeout: 12000,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; InstaJobBot/1.0)',
-            'Accept': 'text/html',
-          },
-        }
-      );
-
-      // Extract results from DDG HTML (simple regex — no Cheerio dependency)
-      const titleRe = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/g;
-      const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([^<]+)<\/a>/g;
-
-      const titles: { url: string; title: string }[] = [];
-      let m;
-      while ((m = titleRe.exec(data)) !== null) {
-        titles.push({ url: m[1], title: m[2].trim() });
-        if (titles.length >= limit) break;
-      }
-
-      const snippets: string[] = [];
-      while ((m = snippetRe.exec(data)) !== null) {
-        snippets.push(m[1].trim());
-      }
-
-      ddgsFailCount = 0; // reset on success
-
-      let inserted = 0;
-      for (let i = 0; i < titles.length; i++) {
-        const snip = snippets[i] || '';
-        const emails = extractEmails(snip);
-        const ok = await upsertJob({
-          title: titles[i].title || query,
-          company: new URL(titles[i].url.startsWith('http') ? titles[i].url : 'https://example.com').hostname || 'Unknown',
-          location: 'Indonesia',
-          description: snip,
-          sourceUrl: titles[i].url,
-          recruiterEmail: emails[0],
-        });
-        if (ok) inserted++;
-      }
-      return inserted;
-    } catch (err: any) {
-      console.warn(`[Scout DDGS] attempt ${attempt + 1} failed: ${err.message}`);
-      if (attempt < retries.length - 1) {
-        await new Promise(r => setTimeout(r, retries[attempt]));
-      }
-    }
-  }
-
-  // All retries failed → circuit breaker
-  ddgsFailCount++;
-  if (ddgsFailCount >= DDGS_MAX_FAIL) {
-    ddgsCooldownUntil = Date.now() + DDGS_COOLDOWN_MS;
-    console.warn(`[Scout DDGS] circuit breaker open, cooldown 30min`);
-    ddgsFailCount = 0;
-  }
+  console.log(`[Scout L2-DDGS] DISABLED — skipped`);
   return 0;
 }
 
@@ -272,18 +208,7 @@ export async function scoutJobsWaterfall(query: string, limit = 10, params?: { r
     await recordScoutRun({ query, layer: 'L1-CSE', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
   }
 
-  // Layer 2: DDGS (always try, independent of L1)
-  try {
-    const n = await layer2_ddgs(query, limit);
-    total += n;
-    console.log(`[Scout L2-DDGS] '${query}' → ${n} inserted`);
-    await recordScoutRun({ query, layer: 'L2-DDGS', jobsFound: n, jobsInserted: n, success: true, durationMs: Date.now() - startTime });
-  } catch (err: any) {
-    console.warn(`[Scout L2-DDGS] failed: ${err.message}`);
-    await recordScoutRun({ query, layer: 'L2-DDGS', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
-  }
-
-  // Layer 4: CSE Paid — only if both L1+L2 returned 0
+  // Layer 4: CSE Paid — only if L1 returned 0 (L2 DDGS disabled)
   if (total === 0) {
     try {
       const n = await layer4_csePaid(query, limit);
