@@ -154,6 +154,34 @@ const start = async () => {
       }
     };
     setInterval(runWeeklySummary, 60 * 60 * 1000);
+
+    // Daily Job Aging cron — increment ageInDays at midnight UTC
+    const runJobAging = async () => {
+      const now = new Date();
+      if (now.getUTCHours() === 0 && now.getUTCMinutes() < 1) {
+        try {
+          // Increment ageInDays for all active jobs
+          const updated = await (prisma as any).job.updateMany({
+            where: { isExpired: false },
+            data: {
+              ageInDays: { increment: 1 },
+            },
+          });
+          console.log(`[JobAging] incremented ${updated.count} jobs`);
+
+          // Soft-delete jobs that reached age 7+
+          const expired = await (prisma as any).job.updateMany({
+            where: { ageInDays: { gte: 7 }, isExpired: false },
+            data: { isExpired: true },
+          });
+          console.log(`[JobAging] soft-deleted ${expired.count} jobs (age >= 7 days)`);
+        } catch (err: any) {
+          console.error('[JobAging] error:', err.message);
+        }
+      }
+    };
+    setInterval(runJobAging, 60 * 1000); // Check every minute (safer for midnight edge)
+
     console.log('Background workers active');
 
     // Health Check

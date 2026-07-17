@@ -9,6 +9,7 @@
 
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
+import { checkScoutCache, updateScoutCache, recordScoutRun } from './scoutCacheService';
 
 const prisma = new PrismaClient();
 
@@ -239,23 +240,36 @@ async function layer4_csePaid(query: string, limit = 10): Promise<number> {
 }
 
 // ─── Main Waterfall ───────────────────────────────────────────────────────────
-export async function scoutJobsWaterfall(query: string, limit = 10): Promise<number> {
+export async function scoutJobsWaterfall(query: string, limit = 10, params?: { role: string; location: string; workType?: string }): Promise<number> {
+  const startTime = Date.now();
+  let total = 0;
+
+  // ─── Query Dedup Check (ScoutCache) ────────────────────────────────────────
+  if (params) {
+    const { needsScan, cacheEntry } = await checkScoutCache(params);
+    if (!needsScan) {
+      console.log(`[Scout Cache HIT] '${query}' scanned ${Math.round((Date.now() - cacheEntry.lastScannedAt.getTime()) / 1000 / 60)}min ago, skip`);
+      return cacheEntry.resultCount;
+    }
+  }
+
   // Layer 3: Local check — skip if fresh data exists
   const hasFresh = await layer3_localCheck(query);
   if (hasFresh) {
     console.log(`[Scout L3] '${query}' fresh in DB, skip`);
+    if (params) await updateScoutCache(params, 0);
     return 0;
   }
-
-  let total = 0;
 
   // Layer 1: CSE Free
   try {
     const n = await layer1_cse(query, limit);
     total += n;
     console.log(`[Scout L1-CSE] '${query}' → ${n} inserted`);
+    await recordScoutRun({ query, layer: 'L1-CSE', jobsFound: n, jobsInserted: n, success: true, durationMs: Date.now() - startTime });
   } catch (err: any) {
     console.warn(`[Scout L1-CSE] failed: ${err.message}`);
+    await recordScoutRun({ query, layer: 'L1-CSE', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
   }
 
   // Layer 2: DDGS (always try, independent of L1)
@@ -263,8 +277,10 @@ export async function scoutJobsWaterfall(query: string, limit = 10): Promise<num
     const n = await layer2_ddgs(query, limit);
     total += n;
     console.log(`[Scout L2-DDGS] '${query}' → ${n} inserted`);
+    await recordScoutRun({ query, layer: 'L2-DDGS', jobsFound: n, jobsInserted: n, success: true, durationMs: Date.now() - startTime });
   } catch (err: any) {
     console.warn(`[Scout L2-DDGS] failed: ${err.message}`);
+    await recordScoutRun({ query, layer: 'L2-DDGS', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
   }
 
   // Layer 4: CSE Paid — only if both L1+L2 returned 0
@@ -273,9 +289,16 @@ export async function scoutJobsWaterfall(query: string, limit = 10): Promise<num
       const n = await layer4_csePaid(query, limit);
       total += n;
       console.log(`[Scout L4-CSEPaid] '${query}' → ${n} inserted`);
+      await recordScoutRun({ query, layer: 'L4-CSEPaid', jobsFound: n, jobsInserted: n, success: true, durationMs: Date.now() - startTime });
     } catch (err: any) {
       console.warn(`[Scout L4-CSEPaid] failed: ${err.message}`);
+      await recordScoutRun({ query, layer: 'L4-CSEPaid', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
     }
+  }
+
+  // Update cache with result count
+  if (params) {
+    await updateScoutCache(params, total);
   }
 
   return total;
