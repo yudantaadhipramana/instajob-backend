@@ -320,7 +320,20 @@ export async function scoutJobsWaterfall(query: string, limit = 10, params?: { r
     await recordScoutRun({ query, layer: 'L1-CSE', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startTime });
   }
 
-  // Layer 4: CSE Paid — only if L1 returned 0 (L2 DDGS disabled)
+  // Layer 4: CSE Paid — only if L1 returned 0 (L2 DDGS experimental retry enabled)
+  // NOTE: L2 DDGS retry will be attempted, but expected to fail due to DDG rate-limiting
+  const startL2 = Date.now();
+  try {
+    const n = await layer2_ddgs_retry(query, limit);
+    total += n;
+    console.log(`[Scout L2-DDGS-Retry] '${query}' → ${n} inserted`);
+    await recordScoutRun({ query, layer: 'L2-DDGS-Retry', jobsFound: n, jobsInserted: n, success: n > 0, durationMs: Date.now() - startL2 });
+  } catch (err: any) {
+    console.error(`[Scout L2-DDGS-Retry] error:`, err.message);
+    await recordScoutRun({ query, layer: 'L2-DDGS-Retry', jobsFound: 0, jobsInserted: 0, success: false, errorMessage: err.message, durationMs: Date.now() - startL2 });
+  }
+
+  // Layer 4: CSE Paid — only if L1+L2 returned 0
   if (total === 0) {
     try {
       const n = await layer4_csePaid(query, limit);
