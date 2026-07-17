@@ -138,6 +138,11 @@ model Job {
   sourceUrl      String?    // External job listing URL (for redirect-only jobs)
   recruiterEmail String?    // Extracted recruiter/HRD email for auto-apply
 
+  // Job Aging Model — age tracked from first discovery, not re-scan
+  discoveredAt DateTime  @default(now()) // set once, never reset on re-discovery
+  ageInDays    Int       @default(0)     // incremented daily via cron, soft-delete at day 7
+  isExpired    Boolean   @default(false) // soft-delete flag when ageInDays >= 7
+
   applications   Application[]
   autoApplyQueue AutoApplyQueue[]
   matchScores    JobMatchScore[]
@@ -149,6 +154,40 @@ model Job {
   @@index([remote])
   @@index([postedAt])
   @@index([industry])
+  @@index([discoveredAt])
+  @@index([isExpired])
+}
+
+// ScoutCache — dedup by unique (role+location+workType) combination
+// Prevents 10,000 users with identical filters from triggering 10,000 queries
+model ScoutCache {
+  id            String   @id @default(uuid())
+  roleHash      String   @unique // hash of normalized (role+location+workType)
+  role          String
+  location      String
+  workType      String   @default("any") // remote/onsite/hybrid/any
+  lastScannedAt DateTime @default(now())
+  resultCount   Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([lastScannedAt])
+}
+
+// ScoutRun — tracks each waterfall execution for observability/quota monitoring
+model ScoutRun {
+  id            String    @id @default(uuid())
+  query         String
+  layer         String    // "L1-CSE" | "L2-DDGS" | "L3-Local" | "L4-CSEPaid"
+  jobsFound     Int       @default(0)
+  jobsInserted  Int       @default(0)
+  success       Boolean   @default(true)
+  errorMessage  String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  durationMs    Int?
+
+  @@index([layer])
+  @@index([startedAt])
 }
 
 model Application {
