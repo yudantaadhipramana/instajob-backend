@@ -78,11 +78,19 @@ export const emailWorker = workersEnabled && connection
         application.user.profile || undefined
       );
 
-      // Send via Resend
-      await sendEmail(
-        process.env.MOCK_RECIPIENT_EMAIL || 'test@example.com',
+      // Send via Gmail (user's own Gmail account via OAuth)
+      const recruiterEmail = application.job.recruiterEmail;
+      if (!recruiterEmail) {
+        throw new Error(`Job ${jobId} has no recruiter email`);
+      }
+
+      // Send via Gmail (signature: userId, to, subject, body, resumeUrl?)
+      await sendEmailViaGmail(
+        userId,
+        recruiterEmail,
         `Application for ${jobTitle} at ${company}`,
         emailContent,
+        application.user.profile?.resumeUrl || null
       );
 
       // Update queue status
