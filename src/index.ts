@@ -859,6 +859,30 @@ const start = async () => {
         }
       });
 
+      // POST /api/extension/log - Receive apply-result logs from InstaLinkedIn extension
+      fastify.post('/api/extension/log', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+        try {
+          const userId = req.user?.sub || req.user?.userId;
+          if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+          const logSchema = z.object({
+            jobTitle: z.string().optional(),
+            company: z.string().optional(),
+            status: z.string().optional(),
+            reason: z.string().optional(),
+            timestamp: z.string().optional(),
+          }).passthrough();
+          const parsed = logSchema.safeParse(req.body);
+          if (!parsed.success) return reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
+
+          console.log(`[Extension Log] user=${userId}`, JSON.stringify(parsed.data));
+          return reply.code(200).send({ message: 'Log received' });
+        } catch (err) {
+          console.error('Extension log error:', err);
+          return reply.code(500).send({ error: 'Failed to log entry' });
+        }
+      });
+
       // ========== AUTO-APPLY ENDPOINTS (PROTECTED) ==========
 
       // GET /api/auto-apply/quota - Get user quota status
