@@ -1955,30 +1955,6 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
       }
     });
 
-    // GET /api/ai/skill-gap/:jobId - Skill gap analysis
-    fastify.get('/api/ai/skill-gap/:jobId', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
-      try {
-        const userId = req.user?.sub || req.user?.userId;
-        if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
-        const { jobId } = req.params as any;
-        const [user, job] = await Promise.all([
-          prisma.user.findUnique({ where: { id: userId }, include: { profile: true } }),
-          prisma.job.findUnique({ where: { id: jobId } }),
-        ]);
-        if (!user || !job) return reply.code(404).send({ error: 'Not found' });
-        const userSkills: string[] = user.profile?.skills ? JSON.parse(user.profile.skills) : [];
-        const jobSkills: string[] = job.requiredSkills ? JSON.parse(job.requiredSkills) : [];
-        const userLower = userSkills.map((s: string) => s.toLowerCase());
-        const missing = jobSkills.filter((s: string) => !userLower.includes(s.toLowerCase()));
-        const matched = jobSkills.filter((s: string) => userLower.includes(s.toLowerCase()));
-        const matchPct = jobSkills.length ? Math.round((matched.length / jobSkills.length) * 100) : 100;
-        return { matchPct, matched, missing, userSkills, requiredSkills: jobSkills };
-      } catch (err) {
-        console.error('Skill gap error:', err);
-        return reply.code(500).send({ error: 'Failed to calculate skill gap' });
-      }
-    });
-
     // GET /api/ai/recommendations - Get job recommendations
     fastify.get('/api/ai/recommendations', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {
