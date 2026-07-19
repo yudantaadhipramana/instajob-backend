@@ -123,21 +123,45 @@ async function layer1_cse(query: string, limit = 10): Promise<number> {
   const cx = process.env.GOOGLE_CSE_CX;
   if (!apiKey || !cx) return 0;
 
-  const q = `${query} lowongan kerja HRD email`;
+  // Exclude LinkedIn hub/category pages (e.g. "1.000+ pekerjaan X di Indonesia")
+  // and job-board aggregator pages that rank high for generic keywords but
+  // are not individual job postings. Force lowongan-kerja intent + exclude hubs.
+  const q = `"${query}" lowongan kerja -"pekerjaan di Indonesia" -"LinkedIn Indonesia" HRD email kirim CV`;
   const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(q)}&num=${Math.min(limit, 10)}`;
 
   const { data } = await axios.get(url, { timeout: 10000 });
   const items: any[] = data.items || [];
   let inserted = 0;
   for (const item of items) {
-    const snippet = (item.snippet || '') + ' ' + (item.title || '');
+    const title = item.title || '';
+    const link = item.link || '';
+
+    // Skip LinkedIn/job-hub aggregator results — not individual postings.
+    // These pages have titles like "1.000+ pekerjaan X di Indonesia" or
+    // "N pekerjaan Y di Indonesia - LinkedIn" and link to search/hub URLs,
+    // not to a specific job posting.
+    const isHubPage =
+      /^\d[\d.,]*\+?\s*pekerjaan\b/i.test(title) ||
+      /linkedin\.com\/jobs\/?(search|jobs-in|-jobs)?\/?$/i.test(link) ||
+      /forum|portal|seputar loker/i.test(title);
+    if (isHubPage) continue;
+
+    const snippet = (item.snippet || '') + ' ' + title;
     const emails = extractEmails(snippet);
+
+    // Only keep results that yielded an actual recruiter email OR look like
+    // a genuine single job posting (has a company-looking displayLink,
+    // not just "example.com" or a generic aggregator domain).
+    const company = item.displayLink || '';
+    const isGenericDomain = !company || company.includes('example.com');
+    if (!emails[0] && isGenericDomain) continue;
+
     const ok = await upsertJob({
-      title: item.title || query,
-      company: item.displayLink || 'Unknown',
+      title: title || query,
+      company: company || 'Unknown',
       location: 'Indonesia',
       description: item.snippet || '',
-      sourceUrl: item.link,
+      sourceUrl: link,
       recruiterEmail: emails[0],
     });
     if (ok) inserted++;
