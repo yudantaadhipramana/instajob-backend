@@ -15,44 +15,40 @@ model User {
   subscriptionType String  @default("free")
   referralCode     String  @unique
 
-  // Performance indexes
-  @@index([subscriptionType])
-  @@index([createdAt])
-
   // Telegram Integration
   telegramChatId   String? @unique
   isTelegramLinked Boolean @default(false)
 
   // Referral System
-  referredById     String?
-  referredBy       User?    @relation("ReferralRelation", fields: [referredById], references: [id])
-  referrals        User[]   @relation("ReferralRelation")
-  points           Int      @default(0)
+  referredById String?
+  referredBy   User?   @relation("ReferralRelation", fields: [referredById], references: [id])
+  referrals    User[]  @relation("ReferralRelation")
+  points       Int     @default(0)
 
   // Gamification
-  level            Int      @default(1)
-  xp               Int      @default(0)
-  currentStreak    Int      @default(0)
-  longestStreak    Int      @default(0)
-  lastActiveDate   DateTime?
+  level          Int       @default(1)
+  xp             Int       @default(0)
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastActiveDate DateTime?
 
   // Relations
-  profile        UserProfile?
-  applications   Application[]
-  notifications  Notification[]
-  subscription   Subscription?
-  autoApplyQueue AutoApplyQueue[]
-  applyQuota     ApplyQuota?
-  achievements   Achievement[]
-  matchScores    JobMatchScore[]
-  bookmarks      JobBookmark[]
-  botConfigs     BotConfig[]
-  botStatus      BotStatus[]
-  payments       Payment[]
-  telegramChats  TelegramChat[]
-  autoApplyRuns  AutoApplyRun[]
+  profile             UserProfile?
+  applications        Application[]
+  notifications       Notification[]
+  subscription        Subscription?
+  autoApplyQueue      AutoApplyQueue[]
+  applyQuota          ApplyQuota?
+  achievements        Achievement[]
+  matchScores         JobMatchScore[]
+  bookmarks           JobBookmark[]
+  botConfigs          BotConfig[]
+  botStatus           BotStatus[]
+  payments            Payment[]
+  telegramChats       TelegramChat[]
+  autoApplyRuns       AutoApplyRun[]
   passwordResetTokens PasswordResetToken[]
-  
+
   // Phase 3A Corrected Relations
   telegramIntegration TelegramIntegration?
   gmailIntegration    GmailIntegration?
@@ -62,14 +58,18 @@ model User {
   botAnalytics        BotAnalytics[]
 
   // Phase K: Affiliate Dashboard Relations
-  affiliateTier       Int      @default(1) // 1:20% 2:25% 3:28% 4:30%
-  totalEarnings       Float    @default(0)
-  pendingPayout       Float    @default(0)
-  referralStat        ReferralStat?
-  payouts             Payout[]
+  affiliateTier Int           @default(1) // 1:20% 2:25% 3:28% 4:30%
+  totalEarnings Float         @default(0)
+  pendingPayout Float         @default(0)
+  referralStat  ReferralStat?
+  payouts       Payout[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Performance indexes
+  @@index([subscriptionType])
+  @@index([createdAt])
 }
 
 // === PHASE K: AFFILIATE DASHBOARD ===
@@ -90,8 +90,8 @@ model Payout {
   user      User      @relation(fields: [userId], references: [id])
   amount    Float
   status    String    @default("PENDING") // PENDING, PROCESSING, PAID, FAILED
-  method    String    // BANK_TRANSFER, PAYPAL, EWALLET
-  details   String?   // JSON string, e.g. bank account info
+  method    String // BANK_TRANSFER, PAYPAL, EWALLET
+  details   String? // JSON string, e.g. bank account info
   paidAt    DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -101,47 +101,47 @@ model Payout {
 }
 
 model UserProfile {
-  id         String   @id @default(uuid())
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id])
-  bio        String?
-  skills     String?  // JSON array stored as string
-  experience String?
-  education  String?
-  location   String?
-  resumeUrl  String?
-  phone      String?
-  jobPreferences String?  // JSON string for preferences
-  profilePicture String?  // URL to uploaded profile picture
-  certifications String?  // JSON array [{name, issuer}]
-  portfolio      String?  // JSON array [{title, url}]
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id])
+  bio            String?
+  skills         String? // JSON array stored as string
+  experience     String?
+  education      String?
+  location       String?
+  resumeUrl      String?
+  phone          String?
+  jobPreferences String? // JSON string for preferences
+  profilePicture String? // URL to uploaded profile picture
+  certifications String? // JSON array [{name, issuer}]
+  portfolio      String? // JSON array [{title, url}]
   website        String?
   linkedIn       String?
 }
 
 model Job {
-  id          String    @id @default(uuid())
-  title       String
-  description String
-  company     String
-  companyName String?
-  location    String
-  salaryMin   Int?
-  salaryMax   Int?
-  remote      Boolean   @default(false)
-  tags        String?   @default("[]")
-  postedAt    DateTime  @default(now())
-  postedDate  DateTime  @default(now())
-  expiresAt   DateTime?
-  industry    String?
-  requiredSkills String?  // JSON array stored as string
-  sourceUrl      String?    // External job listing URL (for redirect-only jobs)
-  recruiterEmail String?    // Extracted recruiter/HRD email for auto-apply
+  id             String    @id @default(uuid())
+  title          String
+  description    String
+  company        String
+  companyName    String?
+  location       String
+  salaryMin      Int?
+  salaryMax      Int?
+  remote         Boolean   @default(false)
+  tags           String?   @default("[]")
+  postedAt       DateTime  @default(now())
+  postedDate     DateTime  @default(now())
+  expiresAt      DateTime?
+  industry       String?
+  requiredSkills String? // JSON array stored as string
+  sourceUrl      String? // External job listing URL (for redirect-only jobs)
+  recruiterEmail String? // Extracted recruiter/HRD email for auto-apply
 
   // Job Aging Model — age tracked from first discovery, not re-scan
-  discoveredAt DateTime  @default(now()) // set once, never reset on re-discovery
-  ageInDays    Int       @default(0)     // incremented daily via cron, soft-delete at day 7
-  isExpired    Boolean   @default(false) // soft-delete flag when ageInDays >= 7
+  discoveredAt DateTime @default(now()) // set once, never reset on re-discovery
+  ageInDays    Int      @default(0) // incremented daily via cron, soft-delete at day 7
+  isExpired    Boolean  @default(false) // soft-delete flag when ageInDays >= 7
 
   applications   Application[]
   autoApplyQueue AutoApplyQueue[]
@@ -175,36 +175,52 @@ model ScoutCache {
 
 // ScoutRun — tracks each waterfall execution for observability/quota monitoring
 model ScoutRun {
-  id            String    @id @default(uuid())
-  query         String
-  layer         String    // "L1-CSE" | "L2-DDGS" | "L3-Local" | "L4-CSEPaid"
-  jobsFound     Int       @default(0)
-  jobsInserted  Int       @default(0)
-  success       Boolean   @default(true)
-  errorMessage  String?
-  startedAt     DateTime  @default(now())
-  finishedAt    DateTime?
-  durationMs    Int?
+  id           String    @id @default(uuid())
+  query        String
+  layer        String // "L1-CSE" | "L2-DDGS" | "L3-Local" | "L4-CSEPaid"
+  jobsFound    Int       @default(0)
+  jobsInserted Int       @default(0)
+  success      Boolean   @default(true)
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  durationMs   Int?
 
   @@index([layer])
   @@index([startedAt])
 }
 
 model Application {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  jobId     String
-  job       Job      @relation(fields: [jobId], references: [id])
-  status    String   @default("pending") // pending, reviewed, interviewed, offered, rejected
-  appliedAt DateTime @default(now())
-  notes     String?
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  jobId         String
+  job           Job      @relation(fields: [jobId], references: [id])
+  status        String   @default("pending") // pending, reviewed, interviewed, offered, rejected
+  appliedAt     DateTime @default(now())
+  notes         String?
+  gmailThreadId String? // Gmail thread ID for reply tracking
+
+  events ApplicationEvent[]
 
   @@unique([userId, jobId])
   @@index([userId])
   @@index([jobId])
   @@index([status])
   @@index([appliedAt])
+  @@index([gmailThreadId])
+}
+
+model ApplicationEvent {
+  id            String      @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  eventType     String // sent, opened, replied
+  createdAt     DateTime    @default(now())
+
+  @@index([applicationId])
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 model Subscription {
@@ -213,7 +229,7 @@ model Subscription {
   user      User      @relation(fields: [userId], references: [id])
   plan      String    @default("free") // free, pro, enterprise
   expiresAt DateTime?
-  features  String?  // JSON array stored as string
+  features  String? // JSON array stored as string
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -263,7 +279,6 @@ model ApplyQuota {
   updatedAt    DateTime @updatedAt
 }
 
-
 model JobMatchScore {
   id     String @id @default(uuid())
   userId String
@@ -271,21 +286,21 @@ model JobMatchScore {
   jobId  String
   job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   score  Int
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@unique([userId, jobId])
   @@index([userId])
   @@index([jobId])
 }
 
 model JobBookmark {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobId     String
-  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId        String
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   bookmarkedAt DateTime @default(now())
 
   @@unique([userId, jobId])
@@ -294,14 +309,13 @@ model JobBookmark {
 }
 
 model Achievement {
-
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String
-  icon        String   // emoji or icon name
-  type        String   // badge, milestone, streak
+  icon        String // emoji or icon name
+  type        String // badge, milestone, streak
   earnedAt    DateTime @default(now())
 
   @@unique([userId, title])
@@ -313,33 +327,33 @@ model Achievement {
 // ============================================
 
 model BotConfig {
-  id              String   @id @default(uuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  botType         String   // "scout", "sender", "fleet"
-  name            String   @default("config_1")
-  configData      String   // JSON config (keywords, filters, templates, etc.)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botType    String // "scout", "sender", "fleet"
+  name       String   @default("config_1")
+  configData String // JSON config (keywords, filters, templates, etc.)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId])
   @@index([botType])
 }
 
 model BotStatus {
-  id              String   @id @default(uuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  processId       String   @unique
-  botType         String   // "scout", "sender", "fleet"
-  status          String   @default("stopped") // "running", "stopped", "paused", "error"
-  uptimeSeconds   Int      @default(0)
-  jobsProcessed   Int      @default(0)
-  applicationsSent Int     @default(0)
-  errorCount      Int      @default(0)
-  metricsJson     String   @default("{}")
-  lastUpdate      DateTime @updatedAt
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processId        String   @unique
+  botType          String // "scout", "sender", "fleet"
+  status           String   @default("stopped") // "running", "stopped", "paused", "error"
+  uptimeSeconds    Int      @default(0)
+  jobsProcessed    Int      @default(0)
+  applicationsSent Int      @default(0)
+  errorCount       Int      @default(0)
+  metricsJson      String   @default("{}")
+  lastUpdate       DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -356,7 +370,7 @@ model Payment {
   plan           String   @default("free") // free, pro, enterprise
   gatewayTransId String?
   status         String   @default("pending") // pending, success, failed, refunded
-  amount         Int?     // in IDR
+  amount         Int? // in IDR
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -383,16 +397,16 @@ model TelegramChat {
 // ============================================
 
 model AutoApplyRun {
-  id                  String    @id @default(uuid())
-  userId              String
-  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status              String    @default("idle") // idle, running, paused, stopped
-  snapshotPreference  String?   // JSON snapshot of UserPreferences at Start time
-  startedAt           DateTime?
-  stoppedAt           DateTime?
-  pausedAt            DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status             String    @default("idle") // idle, running, paused, stopped
+  snapshotPreference String? // JSON snapshot of UserPreferences at Start time
+  startedAt          DateTime?
+  stoppedAt          DateTime?
+  pausedAt           DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -414,16 +428,16 @@ model TelegramIntegration {
 }
 
 model GmailIntegration {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   gmailEmail    String
-  refreshToken  String?  // Needs encryption in prod
-  isConnected   Boolean  @default(false)
+  refreshToken  String? // Needs encryption in prod
+  isConnected   Boolean   @default(false)
   lastSyncAt    DateTime?
-  syncFrequency String   @default("HOURLY")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  syncFrequency String    @default("HOURLY")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model EmailNotification {
@@ -449,16 +463,16 @@ model EmailNotification {
 // ============================================
 
 model BotProfile {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  botName            String   @default("My Job Scout")
-  status             String   @default("IDLE") // ACTIVE, PAUSED, IDLE
-  lastRunAt          DateTime?
-  totalApplied       Int      @default(0)
-  totalSuccessful    Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botName         String    @default("My Job Scout")
+  status          String    @default("IDLE") // ACTIVE, PAUSED, IDLE
+  lastRunAt       DateTime?
+  totalApplied    Int       @default(0)
+  totalSuccessful Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model JobBatch {
