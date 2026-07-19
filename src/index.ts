@@ -1642,7 +1642,9 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
           appliedToday,
           saved,
           interviewed,
-          offered
+          offered,
+          sent,
+          replied
         ] = await Promise.all([
           prisma.job.count(),
           prisma.application.count({
@@ -1656,6 +1658,12 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
           }),
           prisma.application.count({
             where: { userId, status: 'offered' }
+          }),
+          prisma.applicationEvent.count({
+            where: { eventType: 'sent', application: { userId } }
+          }),
+          prisma.applicationEvent.count({
+            where: { eventType: 'replied', application: { userId } }
           })
         ]);
 
@@ -1665,6 +1673,11 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
           saved,
           interviewed,
           offered,
+          sent,
+          replied,
+          // legacy aliases for older frontend builds
+          pendingApplications: sent,
+          acceptedApplications: replied,
           timestamp: new Date().toISOString()
         };
       } catch (err) {
