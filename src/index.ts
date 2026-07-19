@@ -2005,6 +2005,51 @@ fastify.get('/api/chat', { preHandler: [(fastify as any).authenticate] }, async 
       }
     });
 
+    // GET /api/ai/skill-gap/:jobId - Compare user skills vs job required skills
+    fastify.get('/api/ai/skill-gap/:jobId', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
+      try {
+        const userId = req.user?.sub || req.user?.userId;
+        if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+        const { jobId } = req.params as { jobId: string };
+        if (!jobId) return reply.code(400).send({ error: 'jobId is required' });
+
+        const profile = await prisma.userProfile.findUnique({ where: { userId } });
+        const job = await prisma.job.findUnique({ where: { id: jobId } });
+
+        if (!profile || !job) {
+          return reply.code(404).send({ error: 'Profile or job not found' });
+        }
+
+        const normalize = (s: string) => s.trim().toLowerCase();
+        const userSkills: string[] = JSON.parse(profile.skills || '[]');
+        const jobSkills: string[] = JSON.parse(job.requiredSkills || '[]');
+
+        const userSkillsNorm = new Set(userSkills.map(normalize));
+        const jobSkillsNorm = new Set(jobSkills.map(normalize));
+
+        const matched = jobSkills.filter(s => userSkillsNorm.has(normalize(s)));
+        const missing = jobSkills.filter(s => !userSkillsNorm.has(normalize(s)));
+        const extra = userSkills.filter(s => !jobSkillsNorm.has(normalize(s)));
+
+        const matchPercent = jobSkills.length > 0
+          ? Math.round((matched.length / jobSkills.length) * 100)
+          : 0;
+
+        return {
+          jobId,
+          jobTitle: job.title,
+          matched,
+          missing,
+          extra,
+          matchPercent,
+        };
+      } catch (err) {
+        console.error('Skill Gap Analysis error:', err);
+        return reply.code(500).send({ error: 'Failed to analyze skill gap' });
+      }
+    });
+
     // POST /api/ai/tailor-cover-letter - Generate customized cover letter
     fastify.post('/api/ai/tailor-cover-letter', { preHandler: [(fastify as any).authenticate] }, async (req: any, reply: any) => {
       try {

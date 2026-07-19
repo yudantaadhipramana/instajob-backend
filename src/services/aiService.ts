@@ -33,7 +33,13 @@ Required skills: ${(Array.isArray(jobSkillsArray) ? jobSkillsArray : []).join(',
       max_tokens: 5,
       temperature: 0,
     });
-    const score = Math.min(100, Math.max(0, parseInt(response.choices[0].message.content?.trim() || '0', 10)));
+    let score = Math.min(100, Math.max(0, parseInt(response.choices[0].message.content?.trim() || '0', 10)));
+
+    // Industry preference boost
+    const preferredIndustries = prefs.industries || [];
+    if (preferredIndustries.length > 0 && job.industry && preferredIndustries.includes(job.industry)) {
+      score = Math.min(100, score + 15);
+    }
 
     await prisma.jobMatchScore.upsert({
       where: { userId_jobId: { userId, jobId } },
