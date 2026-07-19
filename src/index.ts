@@ -8,6 +8,7 @@ if (process.env.SENTRY_DSN) {
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import staticFiles from '@fastify/static';
@@ -96,10 +97,16 @@ const start = async () => {
       }
     });
 
-    // Register JWT
+    // Register Cookie Parser
+    await fastify.register(cookie, {
+      secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET || 'instajob-cookie-secret',
+    });
+
+    // Register JWT (reads from HTTP-only cookie 'token', falls back to Authorization header)
     await fastify.register(jwt, {
       secret: process.env.JWT_SECRET || (() => { if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET env var required in production'); return 'instajob-dev-secret-key-local-only'; })(),
-      sign: { expiresIn: '7d' }
+      sign: { expiresIn: '7d' },
+      cookie: { cookieName: 'token', signed: false }
     });
 
     fastify.decorate('authenticate', async function (request: any, reply: any) {
